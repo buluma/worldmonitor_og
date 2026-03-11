@@ -9,7 +9,12 @@ import type {
   ListCommodityQuotesResponse,
   CommodityQuote,
 } from '../../../../src/generated/server/worldmonitor/market/v1/service_server';
-import { fetchYahooQuotesBatch, parseStringArray } from './_shared';
+import {
+  fetchYahooQuotesBatch,
+  parseStringArray,
+  shouldSkipLiveYahooFallback,
+  warnMarketDegradedThrottled,
+} from './_shared';
 import { cachedFetchJson, getCachedJson } from '../../../_shared/redis';
 
 const REDIS_CACHE_KEY = 'market:commodities:v1';
@@ -41,6 +46,14 @@ export async function listCommodityQuotes(
   } catch {}
 
   const redisKey = redisCacheKey(symbols);
+
+  if (shouldSkipLiveYahooFallback()) {
+    warnMarketDegradedThrottled(
+      'market:commodities',
+      '[market:commodities] Skipping live Yahoo fetch: Redis seed cache and WS_RELAY_URL are both unavailable',
+    );
+    return fallbackCommodityCache.get(redisKey)?.data || { quotes: [] };
+  }
 
   try {
   const result = await cachedFetchJson<ListCommodityQuotesResponse>(redisKey, REDIS_CACHE_TTL, async () => {

@@ -32,6 +32,39 @@ function getRelayHeaders(): Record<string, string> {
 // ========================================================================
 
 export const UPSTREAM_TIMEOUT_MS = 10_000;
+const YAHOO_LOG_THROTTLE_MS = 5 * 60_000;
+const MARKET_DEGRADE_WARN_THROTTLE_MS = 5 * 60_000;
+
+const yahooWarnState = new Map<string, number>();
+const marketDegradeWarnState = new Map<string, number>();
+
+function warnYahooThrottled(key: string, message: string, ...args: unknown[]): void {
+  const now = Date.now();
+  const last = yahooWarnState.get(key) ?? 0;
+  if (now - last < YAHOO_LOG_THROTTLE_MS) return;
+  yahooWarnState.set(key, now);
+  console.warn(message, ...args);
+}
+
+export function hasRedisConfigured(): boolean {
+  return !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
+}
+
+export function hasYahooRelayConfigured(): boolean {
+  return !!process.env.WS_RELAY_URL;
+}
+
+export function shouldSkipLiveYahooFallback(): boolean {
+  return !hasRedisConfigured() && !hasYahooRelayConfigured();
+}
+
+export function warnMarketDegradedThrottled(key: string, message: string): void {
+  const now = Date.now();
+  const last = marketDegradeWarnState.get(key) ?? 0;
+  if (now - last < MARKET_DEGRADE_WARN_THROTTLE_MS) return;
+  marketDegradeWarnState.set(key, now);
+  console.warn(message);
+}
 
 export function sanitizeSymbol(raw: string): string {
   return raw.trim().replace(/\s+/g, '').slice(0, 32).toUpperCase();
@@ -205,16 +238,16 @@ export async function fetchYahooQuote(
       const parsed = parseYahooChartResponse(data);
       if (parsed) return parsed;
     } else {
-      console.warn(`[Yahoo] ${symbol} direct HTTP ${resp.status}`);
+      warnYahooThrottled(`direct-http:${symbol}:${resp.status}`, `[Yahoo] ${symbol} direct HTTP ${resp.status}`);
     }
   } catch (err) {
-    console.warn(`[Yahoo] ${symbol} direct error:`, (err as Error).message);
+    warnYahooThrottled(`direct-error:${symbol}`, `[Yahoo] ${symbol} direct error:`, (err as Error).message);
   }
 
   // Fallback: Railway relay (different IP, not rate-limited by Yahoo)
   const relayBase = getRelayBaseUrl();
   if (!relayBase) {
-    console.warn(`[Yahoo] ${symbol} relay skipped: WS_RELAY_URL not set`);
+    warnYahooThrottled(`relay-missing:${symbol}`, `[Yahoo] ${symbol} relay skipped: WS_RELAY_URL not set`);
     return null;
   }
   try {
@@ -224,13 +257,16 @@ export async function fetchYahooQuote(
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
     if (!resp.ok) {
-      console.warn(`[Yahoo] ${symbol} relay HTTP ${resp.status}: ${await resp.text().catch(() => '')}`);
+      warnYahooThrottled(
+        `relay-http:${symbol}:${resp.status}`,
+        `[Yahoo] ${symbol} relay HTTP ${resp.status}: ${await resp.text().catch(() => '')}`,
+      );
       return null;
     }
     const data: YahooChartResponse = await resp.json();
     return parseYahooChartResponse(data);
   } catch (err) {
-    console.warn(`[Yahoo] ${symbol} relay error:`, (err as Error).message);
+    warnYahooThrottled(`relay-error:${symbol}`, `[Yahoo] ${symbol} relay error:`, (err as Error).message);
     return null;
   }
 }

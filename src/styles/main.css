@@ -1065,6 +1065,7 @@ canvas,
   border-top: 1px solid var(--border);
   flex-shrink: 0;
   background: var(--surface);
+  display: none
 }
 .site-footer-brand {
   display: flex;
@@ -13855,6 +13856,7 @@ a.prediction-link:hover {
 .pro-banner.pro-banner-in {
   transform: translateY(0);
   opacity: 1;
+  display: none;
 }
 
 .pro-banner.pro-banner-out {
@@ -17696,6 +17698,7 @@ body.has-breaking-alert .panels-grid {
   align-items: flex-end;
   gap: 6px;
   animation: cw-float-in 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  display: none
 }
 
 .community-widget.cw-hiding {
