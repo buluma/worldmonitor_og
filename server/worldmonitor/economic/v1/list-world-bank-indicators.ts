@@ -26,6 +26,17 @@ const TECH_COUNTRIES = [
   'ZAF', 'NGA', 'KEN',
 ];
 
+function normalizeWorldBankDateRange(reqYear: number, currentYear: number): { startYear: number; endYear: number } {
+  // Backward compatibility: small positive values are treated as a lookback window
+  // because the current client passes `year=5` to mean "last 5 years".
+  if (reqYear >= 1900 && reqYear <= currentYear) {
+    return { startYear: reqYear, endYear: reqYear };
+  }
+
+  const lookbackYears = reqYear > 0 ? reqYear : 5;
+  return { startYear: currentYear - lookbackYears, endYear: currentYear };
+}
+
 async function fetchWorldBankIndicators(
   req: ListWorldBankIndicatorsRequest,
 ): Promise<WorldBankCountryData[]> {
@@ -35,10 +46,9 @@ async function fetchWorldBankIndicators(
 
     const countryList = req.countryCode || TECH_COUNTRIES.join(';');
     const currentYear = new Date().getFullYear();
-    const years = req.year > 0 ? req.year : 5;
-    const startYear = currentYear - years;
+    const { startYear, endYear } = normalizeWorldBankDateRange(req.year, currentYear);
 
-    const wbUrl = `https://api.worldbank.org/v2/country/${countryList}/indicator/${indicator}?format=json&date=${startYear}:${currentYear}&per_page=1000`;
+    const wbUrl = `https://api.worldbank.org/v2/country/${countryList}/indicator/${indicator}?format=json&date=${startYear}:${endYear}&per_page=1000`;
 
     const response = await fetch(wbUrl, {
       headers: {

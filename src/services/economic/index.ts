@@ -60,6 +60,11 @@ const emptyCapacityFallback: GetEnergyCapacityResponse = { series: [] };
 const emptyBisPolicyFallback: GetBisPolicyRatesResponse = { rates: [] };
 const emptyBisEerFallback: GetBisExchangeRatesResponse = { rates: [] };
 const emptyBisCreditFallback: GetBisCreditResponse = { entries: [] };
+const techReadinessBreaker = createCircuitBreaker<TechReadinessScore[]>({
+  name: 'WB:tech-readiness',
+  cacheTtlMs: 60 * 60 * 1000,
+  persistCache: true,
+});
 
 // ========================================================================
 // FRED -- replaces src/services/fred.ts
@@ -490,28 +495,32 @@ export interface TechReadinessScore {
 export async function getTechReadinessRankings(
   countries?: string[],
 ): Promise<TechReadinessScore[]> {
-  // Fast path: bootstrap-hydrated data available on first page load
-  const hydrated = getHydratedData('techReadiness') as TechReadinessScore[] | undefined;
-  if (hydrated?.length && !countries) return hydrated;
+  const fallback: TechReadinessScore[] = [];
+  const allScores = await techReadinessBreaker.execute(async () => {
+    // Fast path: bootstrap-hydrated data available on first page load
+    const hydrated = getHydratedData('techReadiness') as TechReadinessScore[] | undefined;
+    if (hydrated?.length) return hydrated;
 
-  // Fallback: fetch the pre-computed seed key directly from bootstrap endpoint.
-  // Data is seeded by seed-wb-indicators.mjs — never call WB API from frontend.
-  try {
+    // Fallback: fetch the pre-computed seed key directly from bootstrap endpoint.
+    // Data is seeded by seed-wb-indicators.mjs — never call WB API from frontend.
     const resp = await fetch('/api/bootstrap?keys=techReadiness', {
       signal: AbortSignal.timeout(5_000),
     });
-    if (resp.ok) {
-      const { data } = (await resp.json()) as { data: { techReadiness?: TechReadinessScore[] } };
-      if (data.techReadiness?.length) {
-        const scores = countries
-          ? data.techReadiness.filter(s => countries.includes(s.country))
-          : data.techReadiness;
-        return scores;
-      }
+    if (!resp.ok) {
+      throw new Error(`Bootstrap techReadiness request failed: HTTP ${resp.status}`);
     }
-  } catch { /* fall through */ }
+    const contentType = resp.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      throw new Error(`Bootstrap techReadiness returned non-JSON content-type: ${contentType || 'unknown'}`);
+    }
 
-  return [];
+    const { data } = (await resp.json()) as { data: { techReadiness?: TechReadinessScore[] } };
+    return data.techReadiness?.length ? data.techReadiness : fallback;
+  }, fallback);
+
+  return countries
+    ? allScores.filter(s => countries.includes(s.country))
+    : allScores;
 }
 
 export async function getCountryComparison(

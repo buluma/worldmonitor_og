@@ -4,6 +4,7 @@ import { resolve, dirname, extname } from 'path';
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import { brotliCompress } from 'zlib';
 import { promisify } from 'util';
+import { pathToFileURL } from 'url';
 import pkg from './package.json';
 import { VARIANT_META } from './src/config/variant-meta';
 
@@ -400,6 +401,63 @@ function sebufApiPlugin(): Plugin {
   };
 }
 
+function bootstrapApiPlugin(): Plugin {
+  let cachedMod: { default?: (req: Request) => Promise<Response> } | null = null;
+  const bootstrapModuleUrl = `${pathToFileURL(resolve(__dirname, 'api/bootstrap.js')).href}?t=`;
+
+  return {
+    name: 'bootstrap-api',
+    configureServer(server) {
+      server.watcher.on('change', (file) => {
+        if (file.endsWith('/api/bootstrap.js')) {
+          cachedMod = null;
+        }
+      });
+
+      server.middlewares.use(async (req, res, next) => {
+        if (!req.url?.startsWith('/api/bootstrap')) {
+          return next();
+        }
+
+        try {
+          if (!cachedMod) {
+            cachedMod = await import(`${bootstrapModuleUrl}${Date.now()}`);
+          }
+
+          const port = server.config.server.port || 3000;
+          const url = new URL(req.url, `http://localhost:${port}`);
+          const headers: Record<string, string> = {};
+          for (const [key, value] of Object.entries(req.headers)) {
+            if (typeof value === 'string') {
+              headers[key] = value;
+            } else if (Array.isArray(value)) {
+              headers[key] = value.join(', ');
+            }
+          }
+
+          const webRequest = new Request(url.toString(), {
+            method: req.method,
+            headers,
+          });
+          const response = await cachedMod.default!(webRequest);
+
+          res.statusCode = response.status;
+          response.headers.forEach((value, key) => {
+            res.setHeader(key, value);
+          });
+          const body = await response.text();
+          res.end(body);
+        } catch (error) {
+          console.error('[vite] /api/bootstrap handler failed:', error);
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'Bootstrap handler failed' }));
+        }
+      });
+    },
+  };
+}
+
 // RSS proxy allowlist — duplicated from api/rss-proxy.js for dev mode.
 // Keep in sync when adding new domains.
 const RSS_PROXY_ALLOWED_DOMAINS = new Set([
@@ -618,6 +676,7 @@ export default defineConfig({
   plugins: [
     htmlVariantPlugin(),
     polymarketPlugin(),
+    bootstrapApiPlugin(),
     rssProxyPlugin(),
     youtubeLivePlugin(),
     gpsjamDevPlugin(),

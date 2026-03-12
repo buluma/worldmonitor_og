@@ -1325,7 +1325,7 @@
       "analyzingCountries": "Se analizează peste 200 de țări...",
       "source": "Sursa: Banca Mondială",
       "updated": "Actualizat: {{date}}",
-      "infoTooltip": "<strong>Global Tech Readiness</strong><br>Scor compozit (0-100) pe baza datelor Băncii Mondiale:<br><br><strong>Valori afișate:</strong><br>🌐 Utilizatori de internet (% din populație)<br>📱 Abonamente mobile (la 100 de persoane)<br>🔬 Cheltuieli de cercetare-dezvoltare (% din C&D)<br>D:</strong> (35%), Internet (30%), bandă largă (20%), mobil (15%)<br><br><em>— = Nu există date recente disponibile</em><br><em>Sursa: Date deschise ale Băncii Mondiale (2019-2024)</em>"
+      "infoTooltip": "<strong>Global Tech Readiness</strong><br>Scor compozit (0-100) pe baza datelor Băncii Mondiale:<br><br><strong>Valori afișate:</strong><br>🌐 Utilizatori de internet (% din populație)<br>📱 Abonamente mobile (la 100 de persoane)<br>🔬 Cheltuieli de cercetare-dezvoltare (% din C&D)<br>D:</strong> (35%), Internet (30%), bandă largă (20%), mobil (15%)<br><br><em>— = Nu există date recente disponibile</em><br><em>Sursa: Date deschise ale Băncii Mondiale (ultimul an disponibil variază în funcție de indicator; 2025 unde este publicat)</em>"
     },
     "populationExposure": {
       "noData": "Nu sunt disponibile date despre expunere",

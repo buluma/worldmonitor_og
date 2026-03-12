@@ -1325,7 +1325,7 @@
       "analyzingCountries": "Analyzing 200+ countries...",
       "source": "Source: World Bank",
       "updated": "Updated: {{date}}",
-      "infoTooltip": "<strong>グローバルテック準備度</strong><br>世界銀行データに基づく複合スコア（0-100）:<br><br><strong>表示指標:</strong><br>🌐 インターネットユーザー（人口比%）<br>📱 モバイル契約数（100人あたり）<br>🔬 研究開発費（GDP比%）<br><br><strong>重み付け:</strong> 研究開発（35%）、インターネット（30%）、ブロードバンド（20%）、モバイル（15%）<br><br><em>— = 最新データなし</em><br><em>出典: 世界銀行オープンデータ（2019-2024）</em>"
+      "infoTooltip": "<strong>グローバルテック準備度</strong><br>世界銀行データに基づく複合スコア（0-100）:<br><br><strong>表示指標:</strong><br>🌐 インターネットユーザー（人口比%）<br>📱 モバイル契約数（100人あたり）<br>🔬 研究開発費（GDP比%）<br><br><strong>重み付け:</strong> 研究開発（35%）、インターネット（30%）、ブロードバンド（20%）、モバイル（15%）<br><br><em>— = 最新データなし</em><br><em>出典: 世界銀行オープンデータ（利用可能な最新年は指標ごとに異なり、公開済みのものは2025年まで含む）</em>"
     },
     "populationExposure": {
       "noData": "露出データなし",

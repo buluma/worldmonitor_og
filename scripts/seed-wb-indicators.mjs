@@ -27,12 +27,13 @@ const RETRY_BASE_MS = 1000;
 const WEIGHTS = { internet: 30, mobile: 15, broadband: 20, rdSpend: 35 };
 const NORMALIZE_MAX = { internet: 100, mobile: 150, broadband: 50, rdSpend: 5 };
 
-// WB indicators + date ranges matching the RPC handler
+// WB indicators. The seed always queries through the current year so it can
+// pick up newly-published World Bank vintages (for example 2025 once available).
 const INDICATORS = [
-  { key: 'internet',  id: 'IT.NET.USER.ZS', dateRange: '2019:2024' },
-  { key: 'mobile',    id: 'IT.CEL.SETS.P2', dateRange: '2019:2024' },
-  { key: 'broadband', id: 'IT.NET.BBND.P2', dateRange: '2019:2024' },
-  { key: 'rdSpend',   id: 'GB.XPD.RSDV.GD.ZS', dateRange: '2018:2024' },
+  { key: 'internet',  id: 'IT.NET.USER.ZS', lookbackYears: 7 },
+  { key: 'mobile',    id: 'IT.CEL.SETS.P2', lookbackYears: 7 },
+  { key: 'broadband', id: 'IT.NET.BBND.P2', lookbackYears: 7 },
+  { key: 'rdSpend',   id: 'GB.XPD.RSDV.GD.ZS', lookbackYears: 8 },
 ];
 
 // ---------------------------------------------------------------------------
@@ -405,11 +406,14 @@ async function main() {
   console.log();
 
   const t0 = Date.now();
+  const currentYear = new Date().getFullYear();
 
   // ── 1. Tech Readiness rankings ──
   console.log('── Tech Readiness ──');
   const indicatorData = {};
-  for (const { key, id, dateRange } of INDICATORS) {
+  for (const { key, id, lookbackYears } of INDICATORS) {
+    const startYear = currentYear - lookbackYears;
+    const dateRange = `${startYear}:${currentYear}`;
     console.log(`Fetching indicator: ${id} (${dateRange})`);
     indicatorData[key] = await fetchWbIndicator(id, dateRange);
     const count = Object.keys(indicatorData[key]).length;

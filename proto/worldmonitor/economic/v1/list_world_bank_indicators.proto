@@ -15,9 +15,12 @@ message ListWorldBankIndicatorsRequest {
     (buf.validate.field).string.min_len = 1,
     (sebuf.http.query) = { name: "indicator_code" }
   ];
-  // Optional country filter (ISO 3166-1 alpha-2).
+  // Optional World Bank country/region code or semicolon-delimited list
+  // (e.g. "US", "USA", "1W", "USA;CHN;KEN").
   string country_code = 2 [(sebuf.http.query) = { name: "country_code" }];
-  // Optional year filter. Defaults to latest available.
+  // Optional year selector. Values >= 1900 request that exact year; smaller
+  // positive values are treated as a lookback window in years for backward
+  // compatibility. Defaults to the latest 5-year window.
   int32 year = 3 [(sebuf.http.query) = { name: "year" }];
   // Maximum items per page.
   int32 page_size = 4 [(sebuf.http.query) = { name: "page_size" }];

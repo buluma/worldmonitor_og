@@ -1305,7 +1305,7 @@
       "analyzingCountries": "Analýza 200+ zemí...",
       "source": "Zdroj: Světová banka",
       "updated": "Aktualizováno: {{date}}",
-      "infoTooltip": "<strong>Globální technologická připravenost</strong><br>Kompozitní skóre (0-100) na základě dat Světové banky:<br><br><strong>Zobrazené metriky:</strong><br>🌐 Uživatelé internetu (% populace)<br>📱 Mobilní předplatná (na 100 obyvatel)<br>🔬 Výdaje na V&V (% HDP)<br><br><strong>Váhy:</strong> V&V (35 %), Internet (30 %), Širokopásmové (20 %), Mobilní (15 %)<br><br><em>— = Žádná nedávná data nejsou k dispozici</em><br><em>Zdroj: World Bank Open Data (2019-2024)</em>"
+      "infoTooltip": "<strong>Globální technologická připravenost</strong><br>Kompozitní skóre (0-100) na základě dat Světové banky:<br><br><strong>Zobrazené metriky:</strong><br>🌐 Uživatelé internetu (% populace)<br>📱 Mobilní předplatná (na 100 obyvatel)<br>🔬 Výdaje na V&V (% HDP)<br><br><strong>Váhy:</strong> V&V (35 %), Internet (30 %), Širokopásmové (20 %), Mobilní (15 %)<br><br><em>— = Žádná nedávná data nejsou k dispozici</em><br><em>Zdroj: World Bank Open Data (poslední dostupný rok se liší podle indikátoru; 2025 tam, kde je publikován)</em>"
     },
     "populationExposure": {
       "noData": "Data o expozici nejsou k dispozici",

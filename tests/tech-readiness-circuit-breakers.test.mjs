@@ -16,7 +16,7 @@
  *      "No data available".
  *
  * Fix: replace single wbBreaker with getWbBreaker(indicatorCode) map,
- * identical to the existing getFredBreaker(seriesId) pattern.
+ * so each indicator has an isolated cache and cooldown state.
  */
 
 import { describe, it } from 'node:test';
@@ -79,22 +79,16 @@ describe('economic/index.ts — per-indicator World Bank circuit breakers', () =
     );
   });
 
-  it('mirrors getFredBreaker pattern (consistency check)', () => {
-    // getFredBreaker already uses this pattern correctly — wbBreaker must follow suit
-    assert.match(src, /getFredBreaker\s*\(/, 'getFredBreaker pattern must still exist as reference');
-    assert.match(src, /getWbBreaker\s*\(/, 'getWbBreaker must mirror getFredBreaker');
-
-    // Both should use a Map
-    const fredBreakerSection = src.slice(
-      src.indexOf('fredBreakers'),
-      src.indexOf('fredBreakers') + 300,
-    );
+  it('uses a Map-backed factory for per-indicator WB breakers', () => {
     const wbBreakerSection = src.slice(
       src.indexOf('wbBreakers'),
-      src.indexOf('wbBreakers') + 300,
+      src.indexOf('wbBreakers') + 400,
     );
-    assert.match(fredBreakerSection, /new\s+Map/, 'fredBreakers uses Map');
-    assert.match(wbBreakerSection, /new\s+Map/, 'wbBreakers uses Map');
+    assert.match(wbBreakerSection, /new\s+Map/, 'wbBreakers must use a Map');
+    assert.match(wbBreakerSection, /wbBreakers\.has\(indicatorCode\)/,
+      'getWbBreaker must check for an existing breaker before creating one');
+    assert.match(wbBreakerSection, /wbBreakers\.set\(indicatorCode,/,
+      'getWbBreaker must store each breaker by indicatorCode');
   });
 });
 
@@ -215,6 +209,17 @@ describe('getTechReadinessRankings — bootstrap-only data flow', () => {
       'Must fallback to bootstrap endpoint');
     assert.doesNotMatch(fnBody, /getIndicatorData\s*\(/,
       'Must NOT call getIndicatorData (WB API) from frontend');
+  });
+
+  it('uses a persistent breaker so prior rankings survive bootstrap outages', () => {
+    assert.match(src, /techReadinessBreaker\s*=\s*createCircuitBreaker/,
+      'Tech readiness should use a dedicated circuit breaker');
+    assert.match(src, /name:\s*'WB:tech-readiness'/,
+      'Tech readiness breaker should have a stable persistence key');
+    assert.match(src, /persistCache:\s*true/,
+      'Tech readiness breaker should persist successful payloads across reloads');
+    assert.match(src, /techReadinessBreaker\.execute/,
+      'getTechReadinessRankings should execute through the breaker');
   });
 
   it('indicator codes exist in TECH_INDICATORS for seed script parity', () => {
