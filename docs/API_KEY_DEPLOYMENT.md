@@ -111,12 +111,10 @@ After deployment:
 
 | File | Role |
 |------|------|
-| `src/services/runtime.ts` | Client-side key gate + header attachment |
-| `src/services/runtime-config.ts` | `WORLDMONITOR_API_KEY` type, validation, `secretsReady` |
-| `api/_api-key.js` | Server-side key validation (origin-aware) |
-| `api/[domain]/v1/[rpc].ts` | Sebuf gateway — calls `validateApiKey` |
-| `api/register-interest.js` | Registration endpoint → Convex |
-| `server/cors.ts` / `api/_cors.js` | CORS headers with `X-WorldMonitor-Key` |
-| `src/components/WorldMonitorTab.ts` | Settings UI for key + registration |
+| `src/services/runtime.ts` | Desktop local-first fetch with cloud fallback |
+| `src/services/runtime-config.ts` | Provider secret loading, validation, and `secretsReady` |
+| `api/[domain]/v1/[rpc].ts` | Sebuf gateway routing |
+| `api/register-interest.js` | Optional registration endpoint → Convex |
+| `server/cors.ts` / `api/_cors.js` | CORS headers |
 | `convex/schema.ts` | Convex DB schema |
 | `convex/registerInterest.ts` | Convex mutation |
