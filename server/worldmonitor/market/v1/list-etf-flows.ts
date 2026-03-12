@@ -105,6 +105,7 @@ export async function listEtfFlows(
   _req: ListEtfFlowsRequest,
 ): Promise<ListEtfFlowsResponse> {
   const now = Date.now();
+  let seededFallback: ListEtfFlowsResponse | null = null;
   if (etfCache && now - etfCacheTimestamp < ETF_CACHE_TTL) {
     return etfCache;
   }
@@ -115,6 +116,7 @@ export async function listEtfFlows(
       getCachedJson('seed-meta:market:etf-flows', true) as Promise<{ fetchedAt?: number } | null>,
     ]);
     if (seedData?.etfs?.length) {
+      seededFallback = seedData;
       const fetchedAt = seedMeta?.fetchedAt ?? 0;
       const isFresh = now - fetchedAt < SEED_FRESHNESS_MS;
       if (isFresh || !process.env.SEED_FALLBACK_ETF) {
@@ -139,8 +141,8 @@ export async function listEtfFlows(
       }
     }
 
-    // If Yahoo rate-limited all calls, return null — outer handler serves stale
-    if (etfs.length === 0 && etfCache) {
+    // Prefer stale seeded data when live Yahoo fetches are unavailable.
+    if (etfs.length === 0 && (etfCache || seededFallback)) {
       return null;
     }
 
@@ -177,7 +179,12 @@ export async function listEtfFlows(
     etfCacheTimestamp = now;
   }
 
-  return result || etfCache || {
+  if (!result && seededFallback) {
+    etfCache = seededFallback;
+    etfCacheTimestamp = now;
+  }
+
+  return result || etfCache || seededFallback || {
     timestamp: new Date().toISOString(),
     summary: {
       etfCount: 0,
@@ -191,7 +198,12 @@ export async function listEtfFlows(
     rateLimited: false,
   };
   } catch {
-    return etfCache || {
+    if (seededFallback) {
+      etfCache = seededFallback;
+      etfCacheTimestamp = now;
+    }
+
+    return etfCache || seededFallback || {
       timestamp: new Date().toISOString(),
       summary: {
         etfCount: 0,

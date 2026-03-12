@@ -147,6 +147,15 @@ describe('security header guardrails', () => {
     assert.match(scriptSrc, /sha256-/, 'CSP script-src should contain at least one sha256 hash');
   });
 
+  it('CSP script-src allows Vercel Analytics loader', () => {
+    const csp = getHeaderValue('Content-Security-Policy');
+    const scriptSrc = csp.match(/script-src\s+([^;]+)/)?.[1] ?? '';
+    assert.ok(
+      scriptSrc.includes('https://va.vercel-scripts.com'),
+      'CSP script-src must allow the Vercel Analytics loader origin'
+    );
+  });
+
   it('security.txt exists in public/.well-known/', () => {
     const secTxt = readFileSync(resolve(__dirname, '../public/.well-known/security.txt'), 'utf-8');
     assert.match(secTxt, /^Contact:/m, 'security.txt must have a Contact field');

@@ -3,7 +3,8 @@ import { afterEach, describe, it } from 'node:test';
 
 import { backtestStock } from '../server/worldmonitor/market/v1/backtest-stock.ts';
 import { listStoredStockBacktests } from '../server/worldmonitor/market/v1/list-stored-stock-backtests.ts';
-import { MarketServiceClient } from '../src/generated/client/worldmonitor/market/v1/service_client.ts';
+import { ApiError, MarketServiceClient } from '../src/generated/client/worldmonitor/market/v1/service_client.ts';
+import { fetchStockBacktestsForTargets } from '../src/services/stock-backtest.ts';
 
 const originalFetch = globalThis.fetch;
 const originalRedisUrl = process.env.UPSTASH_REDIS_REST_URL;
@@ -262,5 +263,18 @@ describe('MarketServiceClient listStoredStockBacktests', () => {
     assert.match(requestedUrl, /\/api\/market\/v1\/list-stored-stock-backtests\?/);
     assert.match(requestedUrl, /symbols=MSFT%2CNVDA|symbols=MSFT,NVDA/);
     assert.match(requestedUrl, /eval_window_days=7/);
+  });
+});
+
+describe('fetchStockBacktestsForTargets', () => {
+  it('surfaces auth failures when every premium backtest request is rejected', async () => {
+    globalThis.fetch = (async () => {
+      return new Response(JSON.stringify({ error: 'Missing World Monitor key' }), { status: 401 });
+    }) as typeof fetch;
+
+    await assert.rejects(
+      () => fetchStockBacktestsForTargets([{ symbol: 'AAPL', name: 'Apple' }], 7),
+      (error: unknown) => error instanceof ApiError && error.statusCode === 401,
+    );
   });
 });

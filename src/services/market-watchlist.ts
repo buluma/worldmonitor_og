@@ -15,6 +15,12 @@ export interface MarketWatchlistEntry {
 
 const STORAGE_KEY = 'wm-market-watchlist-v1';
 export const MARKET_WATCHLIST_EVENT = 'wm-market-watchlist-changed';
+export const DEFAULT_MARKET_WATCHLIST: MarketWatchlistEntry[] = [
+  { symbol: 'AAPL', name: 'Apple' },
+  { symbol: 'MSFT', name: 'Microsoft' },
+  { symbol: 'NVDA', name: 'NVIDIA' },
+  { symbol: 'TSLA', name: 'Tesla' },
+];
 
 function safeParseJson<T>(raw: string | null): T | null {
   if (!raw) return null;
@@ -134,4 +140,8 @@ export function parseMarketWatchlistInput(text: string): MarketWatchlistEntry[] 
   }
 
   return entries;
+}
+
+export function formatMarketWatchlistEntries(entries: MarketWatchlistEntry[]): string {
+  return entries.map((entry) => (entry.name ? `${entry.symbol}|${entry.name}` : entry.symbol)).join('\n');
 }

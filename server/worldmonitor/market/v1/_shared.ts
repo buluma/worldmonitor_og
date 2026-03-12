@@ -218,53 +218,59 @@ function parseYahooChartResponse(data: YahooChartResponse): { price: number; cha
   return { price, change, sparkline };
 }
 
-export async function fetchYahooQuote(
+export async function fetchYahooChartData(
   symbol: string,
-): Promise<{ price: number; change: number; sparkline: number[] } | null> {
+  range = '1d',
+  interval = '1d',
+): Promise<YahooChartResponse | null> {
   // Try direct Yahoo first
   try {
     await yahooGate();
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`;
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${encodeURIComponent(range)}&interval=${encodeURIComponent(interval)}`;
     const resp = await fetch(url, {
       headers: { 'User-Agent': CHROME_UA },
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
     if (resp.ok) {
-      const data: YahooChartResponse = await resp.json();
-      const parsed = parseYahooChartResponse(data);
-      if (parsed) return parsed;
-    } else {
-      warnYahooThrottled(`direct-http:${symbol}:${resp.status}`, `[Yahoo] ${symbol} direct HTTP ${resp.status}`);
+      return await resp.json() as YahooChartResponse;
     }
+    warnYahooThrottled(`direct-http:${symbol}:${range}:${interval}:${resp.status}`, `[Yahoo] ${symbol} direct HTTP ${resp.status}`);
   } catch (err) {
-    warnYahooThrottled(`direct-error:${symbol}`, `[Yahoo] ${symbol} direct error:`, (err as Error).message);
+    warnYahooThrottled(`direct-error:${symbol}:${range}:${interval}`, `[Yahoo] ${symbol} direct error:`, (err as Error).message);
   }
 
   // Fallback: Railway relay (different IP, not rate-limited by Yahoo)
   const relayBase = getRelayBaseUrl();
   if (!relayBase) {
-    warnYahooThrottled(`relay-missing:${symbol}`, `[Yahoo] ${symbol} relay skipped: WS_RELAY_URL not set`);
+    warnYahooThrottled(`relay-missing:${symbol}:${range}:${interval}`, `[Yahoo] ${symbol} relay skipped: WS_RELAY_URL not set`);
     return null;
   }
+
   try {
-    const relayUrl = `${relayBase}/yahoo-chart?symbol=${encodeURIComponent(symbol)}`;
+    const relayUrl = `${relayBase}/yahoo-chart?symbol=${encodeURIComponent(symbol)}&range=${encodeURIComponent(range)}&interval=${encodeURIComponent(interval)}`;
     const resp = await fetch(relayUrl, {
       headers: getRelayHeaders(),
       signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
     if (!resp.ok) {
       warnYahooThrottled(
-        `relay-http:${symbol}:${resp.status}`,
+        `relay-http:${symbol}:${range}:${interval}:${resp.status}`,
         `[Yahoo] ${symbol} relay HTTP ${resp.status}: ${await resp.text().catch(() => '')}`,
       );
       return null;
     }
-    const data: YahooChartResponse = await resp.json();
-    return parseYahooChartResponse(data);
+    return await resp.json() as YahooChartResponse;
   } catch (err) {
-    warnYahooThrottled(`relay-error:${symbol}`, `[Yahoo] ${symbol} relay error:`, (err as Error).message);
+    warnYahooThrottled(`relay-error:${symbol}:${range}:${interval}`, `[Yahoo] ${symbol} relay error:`, (err as Error).message);
     return null;
   }
+}
+
+export async function fetchYahooQuote(
+  symbol: string,
+): Promise<{ price: number; change: number; sparkline: number[] } | null> {
+  const data = await fetchYahooChartData(symbol);
+  return data ? parseYahooChartResponse(data) : null;
 }
 
 // ========================================================================

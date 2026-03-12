@@ -37,7 +37,7 @@ export class ETFFlowsPanel extends Panel {
 
   public async fetchData(): Promise<void> {
     const hydrated = getHydratedData('etfFlows') as ETFFlowsResult | undefined;
-    if (hydrated?.etfs?.length) {
+    if (hydrated) {
       this.data = hydrated;
       this.error = null;
       this.loading = false;

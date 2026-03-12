@@ -1,4 +1,5 @@
 import {
+  ApiError,
   MarketServiceClient,
   type BacktestStockResponse,
 } from '@/generated/client/worldmonitor/market/v1/service_client';
@@ -23,6 +24,7 @@ export async function fetchStockBacktestsForTargets(
   evalWindowDays = DEFAULT_EVAL_WINDOW_DAYS,
 ): Promise<StockBacktestResult[]> {
   const results: StockBacktestResult[] = [];
+  const failures: Error[] = [];
   for (let i = 0; i < targets.length; i++) {
     if (i > 0) await new Promise((resolve) => setTimeout(resolve, 200));
     try {
@@ -32,9 +34,13 @@ export async function fetchStockBacktestsForTargets(
         evalWindowDays,
       });
       if (result.available) results.push(result);
-    } catch {
-      // Skip failed individual backtest
+    } catch (error) {
+      failures.push(error instanceof Error ? error : new Error(String(error)));
     }
+  }
+  if (results.length === 0 && failures.length > 0) {
+    const authFailure = failures.find((error) => error instanceof ApiError && error.statusCode === 401);
+    throw authFailure || failures[0];
   }
   return results;
 }

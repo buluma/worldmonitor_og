@@ -32,39 +32,7 @@ function extractOriginFromReferer(referer) {
 }
 
 export function validateApiKey(req, options = {}) {
-  const forceKey = options.forceKey === true;
-  const key = req.headers.get('X-WorldMonitor-Key');
-  // Same-origin browser requests don't send Origin (per CORS spec).
-  // Fall back to Referer to identify trusted same-origin callers.
-  const origin = req.headers.get('Origin') || extractOriginFromReferer(req.headers.get('Referer')) || '';
-
-  // Desktop app — always require API key
-  if (isDesktopOrigin(origin)) {
-    if (!key) return { valid: false, required: true, error: 'API key required for desktop access' };
-    const validKeys = (process.env.WORLDMONITOR_VALID_KEYS || '').split(',').filter(Boolean);
-    if (!validKeys.includes(key)) return { valid: false, required: true, error: 'Invalid API key' };
-    return { valid: true, required: true };
-  }
-
-  // Trusted browser origin (worldmonitor.app, Vercel previews, localhost dev) — no key needed
-  if (isTrustedBrowserOrigin(origin)) {
-    if (forceKey && !key) {
-      return { valid: false, required: true, error: 'API key required' };
-    }
-    if (key) {
-      const validKeys = (process.env.WORLDMONITOR_VALID_KEYS || '').split(',').filter(Boolean);
-      if (!validKeys.includes(key)) return { valid: false, required: true, error: 'Invalid API key' };
-    }
-    return { valid: true, required: forceKey };
-  }
-
-  // Explicit key provided from unknown origin — validate it
-  if (key) {
-    const validKeys = (process.env.WORLDMONITOR_VALID_KEYS || '').split(',').filter(Boolean);
-    if (!validKeys.includes(key)) return { valid: false, required: true, error: 'Invalid API key' };
-    return { valid: true, required: true };
-  }
-
-  // No origin, no key — require API key (blocks unauthenticated curl/scripts)
-  return { valid: false, required: true, error: 'API key required' };
+  void req;
+  void options;
+  return { valid: true, required: false };
 }

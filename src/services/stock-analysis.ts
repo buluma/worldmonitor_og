@@ -1,5 +1,6 @@
-import { MARKET_SYMBOLS } from '@/config';
+import { MARKET_SYMBOLS } from '@/config/markets';
 import {
+  ApiError,
   MarketServiceClient,
   type AnalyzeStockResponse,
 } from '@/generated/client/worldmonitor/market/v1/service_client';
@@ -24,18 +25,18 @@ function isAnalyzableSymbol(symbol: string): boolean {
 }
 
 export function getStockAnalysisTargets(limit = DEFAULT_LIMIT): StockAnalysisTarget[] {
-  const customEntries = getMarketWatchlistEntries().filter((entry) => isAnalyzableSymbol(entry.symbol));
-  const baseEntries = customEntries.length > 0
-    ? customEntries.map((entry) => ({
-        symbol: entry.symbol,
-        name: entry.name || entry.symbol,
-        display: entry.display || entry.symbol,
-      }))
-    : MARKET_SYMBOLS.filter((entry) => isAnalyzableSymbol(entry.symbol));
-
   const seen = new Set<string>();
   const targets: StockAnalysisTarget[] = [];
-  for (const entry of baseEntries) {
+  const customEntries = getMarketWatchlistEntries()
+    .filter((entry) => isAnalyzableSymbol(entry.symbol))
+    .map((entry) => ({
+      symbol: entry.symbol,
+      name: entry.name || entry.symbol,
+      display: entry.display || entry.symbol,
+    }));
+  const defaultEntries = MARKET_SYMBOLS.filter((entry) => isAnalyzableSymbol(entry.symbol));
+
+  for (const entry of [...customEntries, ...defaultEntries]) {
     if (seen.has(entry.symbol)) continue;
     seen.add(entry.symbol);
     targets.push({ symbol: entry.symbol, name: entry.name, display: entry.display });
@@ -46,6 +47,7 @@ export function getStockAnalysisTargets(limit = DEFAULT_LIMIT): StockAnalysisTar
 
 export async function fetchStockAnalysesForTargets(targets: StockAnalysisTarget[]): Promise<StockAnalysisResult[]> {
   const results: StockAnalysisResult[] = [];
+  const failures: Error[] = [];
   for (let i = 0; i < targets.length; i++) {
     if (i > 0) await new Promise((resolve) => setTimeout(resolve, 200));
     try {
@@ -55,9 +57,13 @@ export async function fetchStockAnalysesForTargets(targets: StockAnalysisTarget[
         includeNews: true,
       });
       if (result.available) results.push(result);
-    } catch {
-      // Skip failed individual analysis
+    } catch (error) {
+      failures.push(error instanceof Error ? error : new Error(String(error)));
     }
+  }
+  if (results.length === 0 && failures.length > 0) {
+    const authFailure = failures.find((error) => error instanceof ApiError && error.statusCode === 401);
+    throw authFailure || failures[0];
   }
   return results;
 }

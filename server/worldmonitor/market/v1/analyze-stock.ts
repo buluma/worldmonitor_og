@@ -6,8 +6,8 @@ import type {
 } from '../../../../src/generated/server/worldmonitor/market/v1/service_server';
 import { callLlm } from '../../../_shared/llm';
 import { cachedFetchJson } from '../../../_shared/redis';
-import { CHROME_UA, yahooGate } from '../../../_shared/constants';
-import { UPSTREAM_TIMEOUT_MS, sanitizeSymbol } from './_shared';
+import type { YahooChartResponse } from './_shared';
+import { fetchYahooChartData, sanitizeSymbol, UPSTREAM_TIMEOUT_MS } from './_shared';
 import { storeStockAnalysisSnapshot } from './premium-stock-store';
 import { searchRecentStockHeadlines } from './stock-news-search';
 
@@ -75,29 +75,6 @@ export type AiOverlay = {
   provider: string;
   model: string;
   fallback: boolean;
-};
-
-type YahooChartResponse = {
-  chart?: {
-    result?: Array<{
-      timestamp?: number[];
-      meta?: {
-        currency?: string;
-        regularMarketPrice?: number;
-        previousClose?: number;
-        chartPreviousClose?: number;
-      };
-      indicators?: {
-        quote?: Array<{
-          open?: Array<number | null>;
-          high?: Array<number | null>;
-          low?: Array<number | null>;
-          close?: Array<number | null>;
-          volume?: Array<number | null>;
-        }>;
-      };
-    }>;
-  };
 };
 
 const CACHE_TTL_SECONDS = 900;
@@ -217,15 +194,8 @@ function uniqueRounded(values: number[]): number[] {
 }
 
 export async function fetchYahooHistory(symbol: string): Promise<{ candles: Candle[]; currency: string } | null> {
-  await yahooGate();
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=6mo&interval=1d&includePrePost=false&events=div,splits`;
-  const response = await fetch(url, {
-    headers: { 'User-Agent': CHROME_UA },
-    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-  });
-  if (!response.ok) return null;
-
-  const data = await response.json() as YahooChartResponse;
+  const data = await fetchYahooChartData(symbol, '6mo', '1d');
+  if (!data) return null;
   const result = data.chart?.result?.[0];
   const quote = result?.indicators?.quote?.[0];
   const timestamps = result?.timestamp ?? [];

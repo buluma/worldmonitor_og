@@ -67,6 +67,7 @@ import {
   getMissingOrStaleStoredStockBacktests,
   hasFreshStoredStockBacktests,
 } from '@/services/stock-backtest';
+import { ApiError } from '@/generated/client/worldmonitor/market/v1/service_client';
 import {
   fetchStockAnalysisHistory,
   getMissingOrStaleStockAnalysisSymbols,
@@ -1043,6 +1044,10 @@ export class DataLoaderManager implements AppModule {
 
     try {
       const targets = getStockAnalysisTargets();
+      if (targets.length === 0) {
+        panel.showStarterEmptyState('Stock analysis needs at least one eligible equity symbol in the watchlist.');
+        return;
+      }
       const targetSymbols = targets.map((target) => target.symbol);
       const storedHistory = await fetchStockAnalysisHistory(targets.length);
       const cachedSnapshots = getLatestStockAnalysisSnapshots(storedHistory, targets.length);
@@ -1059,7 +1064,7 @@ export class DataLoaderManager implements AppModule {
       const results = await fetchStockAnalysesForTargets(staleTargets);
       if (results.length === 0) {
         if (cachedSnapshots.length === 0) {
-          panel.showRetrying('Stock analysis is waiting for eligible watchlist symbols.');
+          panel.showStarterEmptyState('No premium stock analyses are available for the current watchlist yet.');
         }
         return;
       }
@@ -1073,7 +1078,11 @@ export class DataLoaderManager implements AppModule {
         panel.renderAnalyses(cachedSnapshots, cachedHistory, 'cached');
         return;
       }
-      panel.showError('Premium stock analysis is temporarily unavailable.');
+      if (error instanceof ApiError && error.statusCode === 401) {
+        panel.showError('Stock analysis is temporarily unavailable.');
+        return;
+      }
+      panel.showError('Stock analysis is temporarily unavailable.');
     }
   }
 
@@ -1083,6 +1092,10 @@ export class DataLoaderManager implements AppModule {
 
     try {
       const targets = getStockAnalysisTargets();
+      if (targets.length === 0) {
+        panel.showStarterEmptyState('Backtesting needs at least one eligible equity symbol in the watchlist.');
+        return;
+      }
       const targetSymbols = targets.map((target) => target.symbol);
       const stored = await fetchStoredStockBacktests(targets.length);
       if (stored.length > 0) {
@@ -1097,7 +1110,7 @@ export class DataLoaderManager implements AppModule {
       const results = await fetchStockBacktestsForTargets(staleTargets);
       if (results.length === 0) {
         if (stored.length === 0) {
-          panel.showRetrying('Backtesting is waiting for eligible watchlist symbols.');
+          panel.showStarterEmptyState('No premium backtests are available for the current watchlist yet.');
         }
         return;
       }
@@ -1109,7 +1122,11 @@ export class DataLoaderManager implements AppModule {
         panel.renderBacktests(stored, 'cached');
         return;
       }
-      panel.showError('Premium stock backtesting is temporarily unavailable.');
+      if (error instanceof ApiError && error.statusCode === 401) {
+        panel.showError('Stock backtesting is temporarily unavailable.');
+        return;
+      }
+      panel.showError('Stock backtesting is temporarily unavailable.');
     }
   }
 

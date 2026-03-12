@@ -5,6 +5,8 @@ import { formatPrice, formatChange, getChangeClass, getHeatmapClass } from '@/ut
 import { escapeHtml } from '@/utils/sanitize';
 import { miniSparkline } from '@/utils/sparkline';
 import {
+  DEFAULT_MARKET_WATCHLIST,
+  formatMarketWatchlistEntries,
   getMarketWatchlistEntries,
   parseMarketWatchlistInput,
   resetMarketWatchlist,
@@ -14,10 +16,12 @@ import {
 export class MarketPanel extends Panel {
   private settingsBtn: HTMLButtonElement | null = null;
   private overlay: HTMLElement | null = null;
+  private readonly openWatchlistHandler = () => this.openWatchlistModal();
 
   constructor() {
     super({ id: 'markets', title: t('panels.markets') });
     this.createSettingsButton();
+    window.addEventListener('wm:open-market-watchlist', this.openWatchlistHandler);
   }
 
   private createSettingsButton(): void {
@@ -36,9 +40,8 @@ export class MarketPanel extends Panel {
     if (this.overlay) return;
 
     const current = getMarketWatchlistEntries();
-    const currentText = current.length
-      ? current.map((e) => (e.name ? `${e.symbol}|${e.name}` : e.symbol)).join('\n')
-      : '';
+    const starterText = formatMarketWatchlistEntries(DEFAULT_MARKET_WATCHLIST);
+    const currentText = current.length ? formatMarketWatchlistEntries(current) : starterText;
 
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay active';
@@ -59,14 +62,18 @@ export class MarketPanel extends Panel {
       <div style="padding:14px 16px 16px 16px">
         <div style="color:var(--text-dim);font-size:12px;line-height:1.4;margin-bottom:10px">
           Add extra tickers (comma or newline separated). Friendly labels supported: SYMBOL|Label.
-          Example: TSLA|Tesla, AAPL|Apple, ^GSPC|S&P 500
+          Premium analysis and backtesting only use eligible equities, so starter defaults are prefilled below.
+          <br/>
+          Starter pack: AAPL, MSFT, NVDA, TSLA.
           <br/>
           Tip: keep it under ~30 unless you enjoy scrolling.
         </div>
         <textarea id="wmMarketWatchlistInput"
           style="width:100%;min-height:120px;resize:vertical;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:10px;font-family:inherit;font-size:12px;outline:none"
-          spellcheck="false"></textarea>
-        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+          spellcheck="false"
+          placeholder="${starterText.replace(/"/g, '&quot;')}"></textarea>
+        <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:12px">
+          <button type="button" class="panels-reset-layout" id="wmMarketStarterBtn">Load Starter</button>
           <button type="button" class="panels-reset-layout" id="wmMarketResetBtn">Reset</button>
           <button type="button" class="panels-reset-layout" id="wmMarketCancelBtn">Cancel</button>
           <button type="button" class="panels-reset-layout" id="wmMarketSaveBtn" style="border-color:var(--text-dim);color:var(--text)">Save</button>
@@ -85,9 +92,14 @@ export class MarketPanel extends Panel {
     if (input) input.value = currentText;
 
     modal.querySelector<HTMLButtonElement>('#wmMarketCancelBtn')?.addEventListener('click', () => this.closeWatchlistModal());
+    modal.querySelector<HTMLButtonElement>('#wmMarketStarterBtn')?.addEventListener('click', () => {
+      setMarketWatchlistEntries(DEFAULT_MARKET_WATCHLIST);
+      if (input) input.value = starterText;
+      this.closeWatchlistModal();
+    });
     modal.querySelector<HTMLButtonElement>('#wmMarketResetBtn')?.addEventListener('click', () => {
       resetMarketWatchlist();
-      if (input) input.value = ''; // defaults are always included automatically
+      if (input) input.value = starterText;
       this.closeWatchlistModal();
     });
     modal.querySelector<HTMLButtonElement>('#wmMarketSaveBtn')?.addEventListener('click', () => {
@@ -103,6 +115,12 @@ export class MarketPanel extends Panel {
     if (!this.overlay) return;
     this.overlay.remove();
     this.overlay = null;
+  }
+
+  public override destroy(): void {
+    window.removeEventListener('wm:open-market-watchlist', this.openWatchlistHandler);
+    this.closeWatchlistModal();
+    super.destroy();
   }
 
   public renderMarkets(data: MarketData[], rateLimited?: boolean): void {

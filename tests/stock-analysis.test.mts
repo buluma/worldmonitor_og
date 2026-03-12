@@ -2,9 +2,29 @@ import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
 
 import { analyzeStock } from '../server/worldmonitor/market/v1/analyze-stock.ts';
-import { MarketServiceClient } from '../src/generated/client/worldmonitor/market/v1/service_client.ts';
+import { ApiError, MarketServiceClient } from '../src/generated/client/worldmonitor/market/v1/service_client.ts';
+import { fetchStockAnalysesForTargets, getStockAnalysisTargets } from '../src/services/stock-analysis.ts';
 
 const originalFetch = globalThis.fetch;
+const originalLocalStorage = globalThis.localStorage;
+
+function createLocalStorageMock() {
+  const store = new Map<string, string>();
+  return {
+    getItem(key: string) {
+      return store.has(key) ? store.get(key)! : null;
+    },
+    setItem(key: string, value: string) {
+      store.set(key, String(value));
+    },
+    removeItem(key: string) {
+      store.delete(key);
+    },
+    clear() {
+      store.clear();
+    },
+  };
+}
 
 const mockChartPayload = {
   chart: {
@@ -52,6 +72,8 @@ const mockNewsXml = `<?xml version="1.0" encoding="UTF-8"?>
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  if (originalLocalStorage) globalThis.localStorage = originalLocalStorage;
+  else delete (globalThis as typeof globalThis & { localStorage?: Storage }).localStorage;
   delete process.env.GROQ_API_KEY;
   delete process.env.OPENROUTER_API_KEY;
   delete process.env.OLLAMA_API_URL;
@@ -111,5 +133,32 @@ describe('MarketServiceClient analyzeStock', () => {
     assert.match(requestedUrl, /symbol=MSFT/);
     assert.match(requestedUrl, /name=Microsoft/);
     assert.match(requestedUrl, /include_news=true/);
+  });
+});
+
+describe('getStockAnalysisTargets', () => {
+  it('keeps the watchlist additive for premium targets', () => {
+    globalThis.localStorage = createLocalStorageMock() as Storage;
+    globalThis.localStorage.setItem('wm-market-watchlist-v1', JSON.stringify([
+      { symbol: '^GSPC', name: 'S&P 500', display: 'SPX' },
+      { symbol: 'TSLA', name: 'Tesla', display: 'TSLA' },
+    ]));
+
+    const targets = getStockAnalysisTargets(4);
+
+    assert.deepEqual(targets.map((target) => target.symbol), ['TSLA', 'AAPL', 'MSFT', 'NVDA']);
+  });
+});
+
+describe('fetchStockAnalysesForTargets', () => {
+  it('surfaces auth failures when every premium request is rejected', async () => {
+    globalThis.fetch = (async () => {
+      return new Response(JSON.stringify({ error: 'Missing World Monitor key' }), { status: 401 });
+    }) as typeof fetch;
+
+    await assert.rejects(
+      () => fetchStockAnalysesForTargets([{ symbol: 'AAPL', name: 'Apple', display: 'AAPL' }]),
+      (error: unknown) => error instanceof ApiError && error.statusCode === 401,
+    );
   });
 });

@@ -1,6 +1,7 @@
 import { Panel } from './Panel';
 import type { StockBacktestResult } from '@/services/stock-backtest';
 import { escapeHtml } from '@/utils/sanitize';
+import { DEFAULT_MARKET_WATCHLIST, setMarketWatchlistEntries } from '@/services/market-watchlist';
 
 function tone(value: number): string {
   if (value > 0) return '#8df0b2';
@@ -14,8 +15,24 @@ function fmtPct(value: number): string {
 }
 
 export class StockBacktestPanel extends Panel {
+  private readonly actionHandler: (event: Event) => void;
+
   constructor() {
     super({ id: 'stock-backtest', title: 'Premium Backtesting' });
+    this.actionHandler = (event: Event) => {
+      const target = event.target as HTMLElement | null;
+      const action = target?.closest<HTMLElement>('[data-stock-panel-action]')?.dataset.stockPanelAction;
+      if (!action) return;
+      if (action === 'starter') {
+        this.showLoading('Applying starter watchlist...');
+        setMarketWatchlistEntries(DEFAULT_MARKET_WATCHLIST);
+        return;
+      }
+      if (action === 'customize') {
+        window.dispatchEvent(new CustomEvent('wm:open-market-watchlist'));
+      }
+    };
+    this.getElement().addEventListener('click', this.actionHandler);
   }
 
   public renderBacktests(items: StockBacktestResult[], source: 'live' | 'cached' = 'live'): void {
@@ -68,5 +85,36 @@ export class StockBacktestPanel extends Panel {
     `;
 
     this.setContent(html);
+  }
+
+  public showStarterEmptyState(message: string): void {
+    this.clearDataBadge();
+    this.setContent(`
+      <div style="display:grid;gap:12px">
+        <div style="font-size:12px;color:var(--text-dim);line-height:1.55">
+          ${escapeHtml(message)}
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          ${DEFAULT_MARKET_WATCHLIST.map((entry) => `
+            <span style="padding:5px 8px;border:1px solid var(--border);background:rgba(255,255,255,0.03);font-size:11px;font-family:monospace;color:var(--text-dim)">
+              ${escapeHtml(entry.symbol)}
+            </span>
+          `).join('')}
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <button type="button" data-stock-panel-action="starter" class="panels-reset-layout" style="border-color:rgba(141,240,178,0.45);color:#8df0b2">
+            Use Starter Watchlist
+          </button>
+          <button type="button" data-stock-panel-action="customize" class="panels-reset-layout">
+            Customize Watchlist
+          </button>
+        </div>
+      </div>
+    `);
+  }
+
+  public override destroy(): void {
+    this.getElement().removeEventListener('click', this.actionHandler);
+    super.destroy();
   }
 }
