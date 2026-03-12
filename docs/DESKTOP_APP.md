@@ -135,7 +135,6 @@ The desktop vault schema (Rust `SUPPORTED_SECRET_KEYS`) supports the following 2
 - `AISSTREAM_API_KEY`
 - `OLLAMA_API_URL`
 - `OLLAMA_MODEL`
-- `WORLDMONITOR_API_KEY` — gates cloud fallback access (min 16 chars)
 - `WTO_API_KEY`
 - `AVIATIONSTACK_API`
 - `ICAO_API_KEY`

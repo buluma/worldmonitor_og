@@ -501,7 +501,7 @@
         "some": "Some features need API keys"
       },
       "openSettings": "Open Settings",
-      "skipSetup": "Skip the setup — a single World Monitor license unlocks everything. Join the waitlist for early access.",
+      "skipSetup": "Skip setup and configure providers only when you need them.",
       "summary": {
         "desktop": "Desktop mode",
         "web": "Web mode (read-only, server-managed credentials)",
@@ -547,25 +547,25 @@
       "logCleared": "Log cleared.",
       "worldMonitor": {
         "tabLabel": "World Monitor",
-        "heroTitle": "One key. Everything included.",
-        "heroDescription": "A single World Monitor license replaces every API key and LLM provider you'd otherwise configure yourself. AI summaries, real-time intelligence, market data, conflict tracking, fire detection, satellite imagery — all powered, all managed, zero setup.",
+        "heroTitle": "Provider configuration",
+        "heroDescription": "World Monitor no longer uses a license gate. Configure only the API keys and local models you actually want to use.",
         "apiKey": {
-          "title": "License Key",
-          "placeholder": "wm_xxxxxxxxxxxxxxxxxxxxxxxx",
-          "description": "Paste your license to unlock every data source and AI feature instantly.",
-          "statusValid": "LICENSED",
-          "statusMissing": "NO LICENSE"
+          "title": "Optional shared access key",
+          "placeholder": "Optional",
+          "description": "Reserved for future non-gating integrations.",
+          "statusValid": "CONFIGURED",
+          "statusMissing": "NOT SET"
         },
-        "dividerOr": "OR",
+        "dividerOr": "AND",
         "register": {
-          "title": "Reserve Your Spot",
-          "description": "We're preparing to launch World Monitor licenses. Sign up now and be first in line — early members get priority access and founding-member pricing.",
+          "title": "Provider-based setup",
+          "description": "Use the API Keys and LLM sections to configure only the services you need.",
           "emailPlaceholder": "your@email.com",
-          "submitBtn": "Join Waitlist",
+          "submitBtn": "Open Settings",
           "submitting": "Submitting...",
-          "success": "You're on the list! We'll notify you first.",
-          "alreadyRegistered": "You're already on the waitlist.",
-          "error": "Registration failed. Please try again.",
+          "success": "Configuration updated.",
+          "alreadyRegistered": "Already configured.",
+          "error": "Could not update configuration. Please try again.",
           "invalidEmail": "Please enter a valid email address."
         },
         "byokTitle": "Or bring your own keys",
@@ -2416,8 +2416,8 @@
   },
   "premium": {
     "pro": "PRO",
-    "lockedDesc": "Requires a World Monitor license key",
-    "joinWaitlist": "Join Waitlist",
+    "lockedDesc": "This feature is currently unavailable.",
+    "joinWaitlist": "Open Settings",
     "features": {
       "orefSirens1": "Real-time Israel missile & rocket alerts",
       "orefSirens2": "Siren zone mapping with threat classification",

@@ -27,7 +27,7 @@ const MENU_HELP_GITHUB_ID: &str = "help.github";
 #[cfg(feature = "devtools")]
 const MENU_HELP_DEVTOOLS_ID: &str = "help.devtools";
 const TRUSTED_WINDOWS: [&str; 3] = ["main", "settings", "live-channels"];
-const SUPPORTED_SECRET_KEYS: [&str; 28] = [
+const SUPPORTED_SECRET_KEYS: [&str; 27] = [
     "GROQ_API_KEY",
     "OPENROUTER_API_KEY",
     "TAVILY_API_KEYS",
@@ -52,7 +52,6 @@ const SUPPORTED_SECRET_KEYS: [&str; 28] = [
     "UCDP_ACCESS_TOKEN",
     "OLLAMA_API_URL",
     "OLLAMA_MODEL",
-    "WORLDMONITOR_API_KEY",
     "WTO_API_KEY",
     "AVIATIONSTACK_API",
     "ICAO_API_KEY",

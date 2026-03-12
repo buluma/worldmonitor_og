@@ -40,7 +40,7 @@ It does **not** attempt full parity with the source repo's:
 
 1. Finance premium panels load through the normal app shell and panel loader.
 2. Premium stock RPCs are called through `MarketService`.
-3. Premium endpoints require `WORLDMONITOR_API_KEY` server-side, not just a locked UI.
+3. Finance endpoints are available without a World Monitor license gate.
 4. Results are persisted into Redis-backed shared storage.
 5. Panels prefer stored shared results before recomputing fresh analyses or backtests.
 
