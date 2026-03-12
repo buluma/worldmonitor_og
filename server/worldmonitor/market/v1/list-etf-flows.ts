@@ -11,9 +11,7 @@ import type {
 } from '../../../../src/generated/server/worldmonitor/market/v1/service_server';
 import {
   UPSTREAM_TIMEOUT_MS,
-  shouldSkipLiveYahooFallback,
   type YahooChartResponse,
-  warnMarketDegradedThrottled,
 } from './_shared';
 import { CHROME_UA, yahooGate } from '../../../_shared/constants';
 import { cachedFetchJson, getCachedJson } from '../../../_shared/redis';
@@ -127,26 +125,6 @@ export async function listEtfFlows(
     }
   } catch { /* fall through to live fetch */ }
 
-  if (shouldSkipLiveYahooFallback()) {
-    warnMarketDegradedThrottled(
-      'market:etf-flows',
-      '[market:etf-flows] Skipping live Yahoo fetch: Redis seed cache and WS_RELAY_URL are both unavailable',
-    );
-    return etfCache || {
-      timestamp: new Date().toISOString(),
-      summary: {
-        etfCount: 0,
-        totalVolume: 0,
-        totalEstFlow: 0,
-        netDirection: 'UNAVAILABLE',
-        inflowCount: 0,
-        outflowCount: 0,
-      },
-      etfs: [],
-      rateLimited: false,
-    };
-  }
-
   try {
   const result = await cachedFetchJson<ListEtfFlowsResponse>(REDIS_CACHE_KEY, REDIS_CACHE_TTL, async () => {
     const etfs: EtfFlow[] = [];
@@ -159,7 +137,6 @@ export async function listEtfFlows(
       } else {
         misses++;
       }
-      if (misses >= 3 && etfs.length === 0) break;
     }
 
     // If Yahoo rate-limited all calls, return null — outer handler serves stale

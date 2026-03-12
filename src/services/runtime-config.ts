@@ -25,7 +25,6 @@ export type RuntimeSecretKey =
   | 'UCDP_ACCESS_TOKEN'
   | 'OLLAMA_API_URL'
   | 'OLLAMA_MODEL'
-  | 'WORLDMONITOR_API_KEY'
   | 'WTO_API_KEY'
   | 'AVIATIONSTACK_API'
   | 'ICAO_API_KEY';
@@ -77,6 +76,7 @@ export interface RuntimeConfig {
 }
 
 const TOGGLES_STORAGE_KEY = 'worldmonitor-runtime-feature-toggles';
+const TOGGLES_MIGRATION_KEY = 'worldmonitor-runtime-feature-toggles-migrated-v1';
 function getSidecarEnvUpdateUrl(): string {
   return `${getApiBaseUrl()}/api/local-env-update`;
 }
@@ -110,7 +110,7 @@ const defaultToggles: Record<RuntimeFeatureId, boolean> = {
   aiOllama: true,
   wtoTrade: true,
   supplyChain: true,
-  newsPerFeedFallback: false,
+  newsPerFeedFallback: true,
   aviationStack: true,
   icaoNotams: true,
 };
@@ -305,7 +305,18 @@ function readStoredToggles(): Record<RuntimeFeatureId, boolean> {
     const stored = localStorage.getItem(TOGGLES_STORAGE_KEY);
     if (!stored) return { ...defaultToggles };
     const parsed = JSON.parse(stored) as Partial<Record<RuntimeFeatureId, boolean>>;
-    return { ...defaultToggles, ...parsed };
+    const merged = { ...defaultToggles, ...parsed };
+
+    // One-time migration: older builds defaulted newsPerFeedFallback to false,
+    // which can blank all news panels when the shared digest request times out.
+    // Prefer resilient degraded loading unless the user explicitly changes it later.
+    if (!localStorage.getItem(TOGGLES_MIGRATION_KEY) && merged.newsPerFeedFallback === false) {
+      merged.newsPerFeedFallback = true;
+      localStorage.setItem(TOGGLES_STORAGE_KEY, JSON.stringify(merged));
+      localStorage.setItem(TOGGLES_MIGRATION_KEY, '1');
+    }
+
+    return merged;
   } catch {
     return { ...defaultToggles };
   }
@@ -342,11 +353,6 @@ export function validateSecret(key: RuntimeSecretKey, value: string): { valid: b
     } catch {
       return { valid: false, hint: 'Must be a valid URL' };
     }
-  }
-
-  if (key === 'WORLDMONITOR_API_KEY') {
-    if (trimmed.length < 16) return { valid: false, hint: 'API key must be at least 16 characters' };
-    return { valid: true };
   }
 
   return { valid: true };

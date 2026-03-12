@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
 const args = process.argv.slice(2);
@@ -48,7 +48,13 @@ if ((syncVersionsResult.status ?? 1) !== 0) {
   process.exit(syncVersionsResult.status ?? 1);
 }
 
-const bundles = os === 'macos' ? 'app,dmg' : os === 'linux' ? 'appimage' : 'nsis,msi';
+const bundles = os === 'macos' && !sign
+  ? 'app'
+  : os === 'macos'
+    ? 'app,dmg'
+    : os === 'linux'
+      ? 'appimage'
+      : 'nsis,msi';
 const env = {
   ...process.env,
   VITE_VARIANT: variant,
@@ -148,4 +154,53 @@ if (result.error) {
   process.exit(1);
 }
 
-process.exit(result.status ?? 1);
+if ((result.status ?? 1) !== 0) {
+  process.exit(result.status ?? 1);
+}
+
+if (os === 'macos' && !sign) {
+  const archLabel = process.arch === 'arm64' ? 'aarch64' : process.arch === 'x64' ? 'x64' : process.arch;
+  const bundleRoot = path.join('src-tauri', 'target', 'release', 'bundle');
+  const dmgScript = path.join(bundleRoot, 'dmg', 'bundle_dmg.sh');
+  const sourceFolder = path.join(bundleRoot, 'macos');
+  const dmgPath = path.join(bundleRoot, 'dmg', `World Monitor_${env.npm_package_version ?? '0.0.0'}_${archLabel}.dmg`);
+
+  if (!existsSync(dmgScript)) {
+    console.error(`Generated DMG script not found at ${dmgScript}.`);
+    process.exit(1);
+  }
+  if (!existsSync(sourceFolder)) {
+    console.error(`macOS app bundle folder not found at ${sourceFolder}.`);
+    process.exit(1);
+  }
+
+  if (existsSync(dmgPath)) {
+    rmSync(dmgPath, { force: true });
+  }
+
+  console.log('[desktop-package] Creating APFS DMG with headless-safe flags');
+  const dmgArgs = [
+    dmgScript,
+    '--skip-jenkins',
+    '--filesystem', 'APFS',
+    '--volname', 'World Monitor',
+    '--window-size', '660', '400',
+    '--icon-size', '128',
+    '--app-drop-link', '480', '170',
+    '--icon', 'World Monitor.app', '180', '170',
+    dmgPath,
+    sourceFolder,
+  ];
+  const dmgResult = spawnSync('bash', dmgArgs, {
+    env,
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+  });
+  if (dmgResult.error) {
+    console.error(dmgResult.error.message);
+    process.exit(1);
+  }
+  process.exit(dmgResult.status ?? 1);
+}
+
+process.exit(0);

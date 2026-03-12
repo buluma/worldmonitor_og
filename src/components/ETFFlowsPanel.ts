@@ -90,7 +90,7 @@ export class ETFFlowsPanel extends Panel {
     const d = this.data;
     if (!d.etfs?.length) {
       const msg = d.rateLimited ? t('components.etfFlows.rateLimited') : t('components.etfFlows.unavailable');
-      this.setContent(`<div class="panel-loading-text">${msg}</div>`);
+      this.showError(msg, () => void this.fetchData(), d.rateLimited ? 30 : 20);
       return;
     }
 

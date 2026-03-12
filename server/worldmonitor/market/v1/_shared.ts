@@ -87,17 +87,13 @@ export async function fetchYahooQuotesBatch(
 ): Promise<{ results: Map<string, { price: number; change: number; sparkline: number[] }>; rateLimited: boolean }> {
   const results = new Map<string, { price: number; change: number; sparkline: number[] }>();
   let rateLimitHits = 0;
-  let consecutiveFails = 0;
   for (let i = 0; i < symbols.length; i++) {
     const q = await fetchYahooQuote(symbols[i]!);
     if (q) {
       results.set(symbols[i]!, q);
-      consecutiveFails = 0;
     } else {
       rateLimitHits++;
-      consecutiveFails++;
     }
-    if (consecutiveFails >= 5) break;
   }
   return { results, rateLimited: rateLimitHits > symbols.length / 2 };
 }

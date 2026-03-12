@@ -22,6 +22,9 @@ const REDIS_CACHE_TTL = 3600; // 1h — NASA FIRMS VIIRS NRT updates every ~3 ho
 const SEED_FRESHNESS_MS = 90 * 60 * 1000; // 90 minutes
 
 const FIRMS_SOURCE = 'VIIRS_SNPP_NRT';
+const FIRMS_TIMEOUT_MS = 15_000;
+const FIRMS_MAX_ATTEMPTS = 3;
+const FIRMS_BATCH_CONCURRENCY = 3;
 
 /** Bounding boxes as west,south,east,north */
 const MONITORED_REGIONS: Record<string, string> = {
@@ -83,16 +86,51 @@ function parseDetectedAt(acqDate: string, acqTime: string): number {
   return new Date(`${acqDate}T${hours}:${minutes}:00Z`).getTime();
 }
 
+async function sleep(ms: number): Promise<void> {
+  await new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchRegionRows(regionName: string, bbox: string, apiKey: string): Promise<{ regionName: string; rows: Record<string, string>[] }> {
+  const url = `https://firms.modaps.eosdis.nasa.gov/api/area/csv/${apiKey}/${FIRMS_SOURCE}/${bbox}/1`;
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= FIRMS_MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(url, {
+        headers: { Accept: 'text/csv', 'User-Agent': CHROME_UA },
+        signal: AbortSignal.timeout(FIRMS_TIMEOUT_MS),
+      });
+      if (!res.ok) {
+        throw new Error(`FIRMS ${res.status} for ${regionName}`);
+      }
+      const csv = await res.text();
+      return { regionName, rows: parseCSV(csv) };
+    } catch (error) {
+      lastError = error instanceof Error
+        ? error
+        : new Error(String(error));
+      if (attempt < FIRMS_MAX_ATTEMPTS) {
+        await sleep(250 * attempt);
+      }
+    }
+  }
+
+  throw new Error(`FIRMS fetch failed for ${regionName} after ${FIRMS_MAX_ATTEMPTS} attempts: ${lastError?.message || 'unknown error'}`);
+}
+
 export const listFireDetections: WildfireServiceHandler['listFireDetections'] = async (
   _ctx: ServerContext,
   _req: ListFireDetectionsRequest,
 ): Promise<ListFireDetectionsResponse> => {
+  let staleFallback: ListFireDetectionsResponse | null = null;
+
   try {
     const [seedData, seedMeta] = await Promise.all([
       getCachedJson(REDIS_CACHE_KEY, true) as Promise<ListFireDetectionsResponse | null>,
       getCachedJson('seed-meta:wildfire:fires', true) as Promise<{ fetchedAt?: number } | null>,
     ]);
     if (seedData?.fireDetections?.length) {
+      staleFallback = seedData;
       const isFresh = (seedMeta?.fetchedAt ?? 0) > 0 && (Date.now() - seedMeta!.fetchedAt!) < SEED_FRESHNESS_MS;
       if (isFresh || !process.env.SEED_FALLBACK_WILDFIRES) {
         return seedData;
@@ -114,23 +152,17 @@ export const listFireDetections: WildfireServiceHandler['listFireDetections'] = 
       REDIS_CACHE_TTL,
       async () => {
         const entries = Object.entries(MONITORED_REGIONS);
-        const results = await Promise.allSettled(
-          entries.map(async ([regionName, bbox]) => {
-            const url = `https://firms.modaps.eosdis.nasa.gov/api/area/csv/${apiKey}/${FIRMS_SOURCE}/${bbox}/1`;
-            const res = await fetch(url, {
-              headers: { Accept: 'text/csv', 'User-Agent': CHROME_UA },
-              signal: AbortSignal.timeout(15_000),
-            });
-            if (!res.ok) {
-              throw new Error(`FIRMS ${res.status} for ${regionName}`);
-            }
-            const csv = await res.text();
-            const rows = parseCSV(csv);
-            return { regionName, rows };
-          }),
-        );
+        const results: PromiseSettledResult<{ regionName: string; rows: Record<string, string>[] }>[] = [];
+        for (let i = 0; i < entries.length; i += FIRMS_BATCH_CONCURRENCY) {
+          const batch = entries.slice(i, i + FIRMS_BATCH_CONCURRENCY);
+          const settled = await Promise.allSettled(
+            batch.map(([regionName, bbox]) => fetchRegionRows(regionName, bbox, apiKey)),
+          );
+          results.push(...settled);
+        }
 
         const fireDetections: ListFireDetectionsResponse['fireDetections'] = [];
+        let failedRegions = 0;
 
         for (const r of results) {
           if (r.status === 'fulfilled') {
@@ -153,14 +185,23 @@ export const listFireDetections: WildfireServiceHandler['listFireDetections'] = 
               });
             }
           } else {
+            failedRegions++;
             console.error('[FIRMS]', r.reason?.message);
           }
+        }
+
+        if (fireDetections.length === 0 && failedRegions > 0) {
+          throw new Error(`FIRMS failed for ${failedRegions}/${entries.length} monitored regions with no successful detections`);
         }
 
         return fireDetections.length > 0 ? { fireDetections, pagination: undefined } : null;
       },
     );
   } catch {
+    if (staleFallback?.fireDetections?.length) {
+      console.warn(`[FIRMS] Serving stale cached detections after live fetch failure (${staleFallback.fireDetections.length} records)`);
+      return staleFallback;
+    }
     return { fireDetections: [], pagination: undefined };
   }
   return result || { fireDetections: [], pagination: undefined };

@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { resolve, dirname, extname } from 'path';
 import { mkdir, readFile, writeFile } from 'fs/promises';
@@ -9,6 +9,11 @@ import { VARIANT_META } from './src/config/variant-meta';
 
 const isE2E = process.env.VITE_E2E === '1';
 const isDesktopBuild = process.env.VITE_DESKTOP_RUNTIME === '1';
+
+// Vite loads env for client replacements, but the in-process sebuf handlers
+// read server credentials directly from process.env. Merge the full .env set
+// here so dev-time RPC handlers can see Redis/relay/provider config too.
+Object.assign(process.env, loadEnv(process.env.NODE_ENV || 'development', process.cwd(), ''));
 
 const brotliCompressAsync = promisify(brotliCompress);
 const BROTLI_EXTENSIONS = new Set(['.js', '.mjs', '.css', '.html', '.svg', '.json', '.txt', '.xml', '.wasm']);
@@ -443,6 +448,12 @@ const RSS_PROXY_ALLOWED_DOMAINS = new Set([
   'www.hurriyet.com.tr', 'tvn24.pl', 'www.polsatnews.pl', 'www.rp.pl', 'meduza.io',
   'novayagazeta.eu', 'www.bangkokpost.com', 'vnexpress.net', 'www.abc.net.au',
   'news.ycombinator.com',
+  // Security advisory feeds used by src/services/security-advisories.ts
+  'travel.state.gov', 'www.safetravel.govt.nz', 'th.usembassy.gov', 'ae.usembassy.gov',
+  'de.usembassy.gov', 'ua.usembassy.gov', 'mx.usembassy.gov', 'in.usembassy.gov',
+  'pk.usembassy.gov', 'co.usembassy.gov', 'pl.usembassy.gov', 'bd.usembassy.gov',
+  'it.usembassy.gov', 'do.usembassy.gov', 'mm.usembassy.gov', 'wwwnc.cdc.gov',
+  'www.ecdc.europa.eu', 'www.afro.who.int',
   // Finance variant
   'www.coindesk.com', 'cointelegraph.com',
   // Happy variant — positive news sources

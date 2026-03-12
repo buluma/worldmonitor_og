@@ -13,8 +13,6 @@ import type {
 } from '../../../../src/generated/server/worldmonitor/market/v1/service_server';
 import {
   fetchYahooQuotesBatch,
-  shouldSkipLiveYahooFallback,
-  warnMarketDegradedThrottled,
 } from './_shared';
 import { cachedFetchJson, getCachedJson } from '../../../_shared/redis';
 import gulfConfig from '../../../../shared/gulf.json';
@@ -48,18 +46,6 @@ export async function listGulfQuotes(
 
   if (memCache && now - memCache.ts < MEM_TTL) {
     return memCache.data;
-  }
-
-  // In local or partially configured environments, a live Yahoo fallback is
-  // predictably noisy and low-value when we cannot read seed data and we also
-  // have no relay configured. Return cached-or-empty data immediately instead
-  // of triggering repeated 429/relay-missing cycles every poll interval.
-  if (shouldSkipLiveYahooFallback()) {
-    warnMarketDegradedThrottled(
-      'market:gulf-quotes',
-      '[market:gulf-quotes] Skipping live Yahoo fetch: Redis seed cache and WS_RELAY_URL are both unavailable',
-    );
-    return memCache?.data || { quotes: [], rateLimited: false };
   }
 
   try {

@@ -11,7 +11,7 @@ function errMsg(err: unknown): string {
  */
 function getKeyPrefix(): string {
   const env = process.env.VERCEL_ENV; // 'production' | 'preview' | 'development'
-  if (!env || env === 'production') return '';
+  if (!env || env === 'production' || env === 'development') return '';
   const sha = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 8) || 'dev';
   return `${env}:${sha}:`;
 }

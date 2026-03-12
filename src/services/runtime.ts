@@ -1,8 +1,6 @@
 import { SITE_VARIANT } from '@/config/variant';
 
 const WS_API_URL = import.meta.env.VITE_WS_API_URL || '';
-const KEYED_CLOUD_API_PATTERN = /^\/api\/(?:[^/]+\/v1\/|bootstrap(?:\?|$)|polymarket(?:\?|$)|ais-snapshot(?:\?|$))/;
-
 const DEFAULT_REMOTE_HOSTS: Record<string, string> = {
   tech: WS_API_URL,
   full: WS_API_URL,
@@ -439,10 +437,6 @@ function isLocalOnlyApiTarget(target: string): boolean {
   return target.startsWith('/api/local-');
 }
 
-function isKeyFreeApiTarget(target: string): boolean {
-  return target.startsWith('/api/register-interest') || target.startsWith('/api/version');
-}
-
 async function fetchLocalWithStartupRetry(
   nativeFetch: typeof window.fetch,
   localUrl: string,
@@ -543,20 +537,7 @@ export function installRuntimeFetchPatch(): void {
 
     const localUrl = `${getApiBaseUrl()}${target}`;
     if (debug) console.log(`[fetch] intercept → ${target}`);
-    let allowCloudFallback = !isLocalOnlyApiTarget(target);
-
-    if (allowCloudFallback && !isKeyFreeApiTarget(target)) {
-      try {
-        const { getSecretState, secretsReady } = await import('@/services/runtime-config');
-        await Promise.race([secretsReady, new Promise<void>(r => setTimeout(r, 2000))]);
-        const wmKeyState = getSecretState('WORLDMONITOR_API_KEY');
-        if (!wmKeyState.present || !wmKeyState.valid) {
-          allowCloudFallback = false;
-        }
-      } catch {
-        allowCloudFallback = false;
-      }
-    }
+    const allowCloudFallback = !isLocalOnlyApiTarget(target);
 
     const cloudFallback = async () => {
       if (!allowCloudFallback) {
@@ -564,15 +545,7 @@ export function installRuntimeFetchPatch(): void {
       }
       const cloudUrl = `${getRemoteApiBaseUrl()}${target}`;
       if (debug) console.log(`[fetch] cloud fallback → ${cloudUrl}`);
-      const cloudHeaders = new Headers(init?.headers);
-      if (KEYED_CLOUD_API_PATTERN.test(target)) {
-        const { getRuntimeConfigSnapshot } = await import('@/services/runtime-config');
-        const wmKeyValue = getRuntimeConfigSnapshot().secrets['WORLDMONITOR_API_KEY']?.value;
-        if (wmKeyValue) {
-          cloudHeaders.set('X-WorldMonitor-Key', wmKeyValue);
-        }
-      }
-      return nativeFetch(cloudUrl, { ...init, headers: cloudHeaders });
+      return nativeFetch(cloudUrl, init);
     };
 
     try {

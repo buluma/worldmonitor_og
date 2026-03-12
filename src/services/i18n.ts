@@ -80,6 +80,7 @@ export async function initI18n(): Promise<void> {
       },
       supportedLngs: [...SUPPORTED_LANGUAGES],
       nonExplicitSupportedLngs: true,
+      load: 'languageOnly',
       fallbackLng: 'en',
       debug: import.meta.env.DEV,
       interpolation: {
