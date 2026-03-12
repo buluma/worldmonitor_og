@@ -184,12 +184,12 @@ export class MacroSignalsPanel extends Panel {
     }
 
     if (this.error || !this.data) {
-      this.showError(this.error || t('common.noDataShort'), () => void this.fetchData());
+      this.showError(this.error || t('common.noDataShort'), () => void this.fetchData(), null);
       return;
     }
 
     if (this.data.unavailable) {
-      this.showError(t('common.upstreamUnavailable'), () => void this.fetchData());
+      this.showError(t('common.upstreamUnavailable'), () => void this.fetchData(), null);
       return;
     }
 

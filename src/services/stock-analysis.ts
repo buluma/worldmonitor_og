@@ -12,6 +12,16 @@ const client = new MarketServiceClient('', {
 
 export type StockAnalysisResult = AnalyzeStockResponse;
 
+export class PremiumStockUnavailableError extends Error {
+  kind: 'config' | 'unavailable';
+
+  constructor(message: string, kind: 'config' | 'unavailable' = 'unavailable') {
+    super(message);
+    this.name = 'PremiumStockUnavailableError';
+    this.kind = kind;
+  }
+}
+
 export interface StockAnalysisTarget {
   symbol: string;
   name: string;
@@ -48,6 +58,7 @@ export function getStockAnalysisTargets(limit = DEFAULT_LIMIT): StockAnalysisTar
 export async function fetchStockAnalysesForTargets(targets: StockAnalysisTarget[]): Promise<StockAnalysisResult[]> {
   const results: StockAnalysisResult[] = [];
   const failures: Error[] = [];
+  const unavailableMessages: string[] = [];
   for (let i = 0; i < targets.length; i++) {
     if (i > 0) await new Promise((resolve) => setTimeout(resolve, 200));
     try {
@@ -56,7 +67,11 @@ export async function fetchStockAnalysesForTargets(targets: StockAnalysisTarget[
         name: targets[i]!.name,
         includeNews: true,
       });
-      if (result.available) results.push(result);
+      if (result.available) {
+        results.push(result);
+      } else if (result.summary) {
+        unavailableMessages.push(result.summary);
+      }
     } catch (error) {
       failures.push(error instanceof Error ? error : new Error(String(error)));
     }
@@ -64,6 +79,11 @@ export async function fetchStockAnalysesForTargets(targets: StockAnalysisTarget[
   if (results.length === 0 && failures.length > 0) {
     const authFailure = failures.find((error) => error instanceof ApiError && error.statusCode === 401);
     throw authFailure || failures[0];
+  }
+  if (results.length === 0 && unavailableMessages.length > 0) {
+    const message = unavailableMessages[0]!;
+    const isConfigError = /WS_RELAY_URL|FINNHUB_API_KEY/.test(message);
+    throw new PremiumStockUnavailableError(message, isConfigError ? 'config' : 'unavailable');
   }
   return results;
 }

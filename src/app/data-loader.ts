@@ -60,7 +60,7 @@ import {
   fetchCriticalMinerals,
 } from '@/services';
 import { getMarketWatchlistEntries } from '@/services/market-watchlist';
-import { fetchStockAnalysesForTargets, getStockAnalysisTargets } from '@/services/stock-analysis';
+import { PremiumStockUnavailableError, fetchStockAnalysesForTargets, getStockAnalysisTargets } from '@/services/stock-analysis';
 import {
   fetchStockBacktestsForTargets,
   fetchStoredStockBacktests,
@@ -1071,7 +1071,6 @@ export class DataLoaderManager implements AppModule {
       const nextHistory = mergeStockAnalysisHistory(storedHistory, results);
       panel.renderAnalyses(results, nextHistory, 'live');
     } catch (error) {
-      console.error('[StockAnalysis] failed:', error);
       const cachedHistory = await fetchStockAnalysisHistory().catch(() => ({}));
       const cachedSnapshots = getLatestStockAnalysisSnapshots(cachedHistory);
       if (cachedSnapshots.length > 0) {
@@ -1082,6 +1081,15 @@ export class DataLoaderManager implements AppModule {
         panel.showError('Stock analysis is temporarily unavailable.');
         return;
       }
+      if (error instanceof PremiumStockUnavailableError) {
+        if (error.kind === 'config') {
+          panel.showConfigError(error.message);
+          return;
+        }
+        panel.showError(error.message);
+        return;
+      }
+      console.error('[StockAnalysis] failed:', error);
       panel.showError('Stock analysis is temporarily unavailable.');
     }
   }
@@ -1116,7 +1124,6 @@ export class DataLoaderManager implements AppModule {
       }
       panel.renderBacktests(results);
     } catch (error) {
-      console.error('[StockBacktest] failed:', error);
       const stored = await fetchStoredStockBacktests().catch(() => []);
       if (stored.length > 0) {
         panel.renderBacktests(stored, 'cached');
@@ -1126,6 +1133,15 @@ export class DataLoaderManager implements AppModule {
         panel.showError('Stock backtesting is temporarily unavailable.');
         return;
       }
+      if (error instanceof PremiumStockUnavailableError) {
+        if (error.kind === 'config') {
+          panel.showConfigError(error.message);
+          return;
+        }
+        panel.showError(error.message);
+        return;
+      }
+      console.error('[StockBacktest] failed:', error);
       panel.showError('Stock backtesting is temporarily unavailable.');
     }
   }

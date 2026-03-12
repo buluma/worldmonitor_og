@@ -628,25 +628,25 @@ export class App {
     this.refreshScheduler.scheduleRefresh(
       'service-status',
       () => (this.state.panels['service-status'] as ServiceStatusPanel).fetchStatus(),
-      60_000,
+      10 * 60_000,
       () => !!this.state.panels['service-status']
     );
     this.refreshScheduler.scheduleRefresh(
       'stablecoins',
       () => (this.state.panels['stablecoins'] as StablecoinPanel).fetchData(),
-      3 * 60_000,
+      10 * 60_000,
       () => !!this.state.panels['stablecoins']
     );
     this.refreshScheduler.scheduleRefresh(
       'etf-flows',
       () => (this.state.panels['etf-flows'] as ETFFlowsPanel).fetchData(),
-      3 * 60_000,
+      10 * 60_000,
       () => !!this.state.panels['etf-flows']
     );
     this.refreshScheduler.scheduleRefresh(
       'macro-signals',
       () => (this.state.panels['macro-signals'] as MacroSignalsPanel).fetchData(),
-      3 * 60_000,
+      15 * 60_000,
       () => !!this.state.panels['macro-signals']
     );
     this.refreshScheduler.scheduleRefresh(

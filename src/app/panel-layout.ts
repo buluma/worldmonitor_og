@@ -545,8 +545,9 @@ export class PanelLayoutManager implements AppModule {
       if (!Array.isArray((FEEDS as Record<string, unknown>)[key])) continue;
       const panelKey = this.ctx.panels[key] && !this.ctx.newsPanels[key] ? `${key}-news` : key;
       if (this.ctx.panels[panelKey]) continue;
-      if (!DEFAULT_PANELS[panelKey] && !DEFAULT_PANELS[key]) continue;
-      const panelConfig = DEFAULT_PANELS[panelKey] ?? DEFAULT_PANELS[key];
+      if (panelKey !== key && !DEFAULT_PANELS[panelKey]) continue;
+      if (panelKey === key && !DEFAULT_PANELS[key]) continue;
+      const panelConfig = DEFAULT_PANELS[panelKey];
       const label = panelConfig?.name ?? key.charAt(0).toUpperCase() + key.slice(1);
       const panel = new NewsPanel(panelKey, label);
       this.attachRelatedAssetHandlers(panel);

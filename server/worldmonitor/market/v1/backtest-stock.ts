@@ -14,6 +14,7 @@ import {
   type Candle,
   STOCK_ANALYSIS_ENGINE_VERSION,
 } from './analyze-stock';
+import { getPremiumStockHistoryConfigHint } from './_shared';
 import {
   getStoredHistoricalBacktestAnalyses,
   storeHistoricalBacktestAnalysisRecords,
@@ -266,7 +267,7 @@ export const backtestStock: MarketServiceHandler['backtestStock'] = async (
     cumulativeSimulatedReturnPct: 0,
     latestSignal: '',
     latestSignalScore: 0,
-    summary: 'Backtest unavailable for this symbol.',
+    summary: getPremiumStockHistoryConfigHint() || 'Backtest unavailable for this symbol.',
     generatedAt: new Date().toISOString(),
     evaluations: [],
     engineVersion: STOCK_ANALYSIS_ENGINE_VERSION,

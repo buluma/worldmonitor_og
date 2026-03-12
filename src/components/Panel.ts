@@ -676,7 +676,7 @@ export class Panel {
     );
   }
 
-  public showError(message?: string, onRetry?: () => void, autoRetrySeconds?: number): void {
+  public showError(message?: string, onRetry?: () => void, autoRetrySeconds?: number | null): void {
     if (this._locked) return;
     this.clearRetryCountdown();
     this.setErrorState(true);
@@ -692,22 +692,32 @@ export class Panel {
     const children: (HTMLElement | string)[] = [radarEl, msgEl];
 
     if (this.retryCallback) {
-      const backoffSeconds = autoRetrySeconds ?? Math.min(15 * Math.pow(2, this.retryAttempt), 180);
-      this.retryAttempt++;
-      let remaining = Math.round(backoffSeconds);
-      const countdownEl = h('div', { className: 'panel-error-countdown' },
-        `${t('common.retrying')} (${remaining}s)`,
-      );
-      children.push(countdownEl);
-      this.retryCountdownTimer = setInterval(() => {
-        remaining--;
-        if (remaining <= 0) {
-          this.clearRetryCountdown();
-          this.retryCallback?.();
-          return;
-        }
-        countdownEl.textContent = `${t('common.retrying')} (${remaining}s)`;
-      }, 1000);
+      if (autoRetrySeconds === null) {
+        const retryBtn = h('button', {
+          type: 'button',
+          className: 'panel-retry-btn',
+          'data-panel-retry': 'true',
+        }, t('common.retry'));
+        retryBtn.addEventListener('click', () => this.retryCallback?.());
+        children.push(retryBtn);
+      } else {
+        const backoffSeconds = autoRetrySeconds ?? Math.min(15 * Math.pow(2, this.retryAttempt), 180);
+        this.retryAttempt++;
+        let remaining = Math.round(backoffSeconds);
+        const countdownEl = h('div', { className: 'panel-error-countdown' },
+          `${t('common.retrying')} (${remaining}s)`,
+        );
+        children.push(countdownEl);
+        this.retryCountdownTimer = setInterval(() => {
+          remaining--;
+          if (remaining <= 0) {
+            this.clearRetryCountdown();
+            this.retryCallback?.();
+            return;
+          }
+          countdownEl.textContent = `${t('common.retrying')} (${remaining}s)`;
+        }, 1000);
+      }
     }
     replaceChildren(this.content, h('div', { className: 'panel-error-state' }, ...children));
   }

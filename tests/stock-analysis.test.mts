@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
 
-import { analyzeStock } from '../server/worldmonitor/market/v1/analyze-stock.ts';
+import { analyzeStock, fetchYahooHistory } from '../server/worldmonitor/market/v1/analyze-stock.ts';
 import { ApiError, MarketServiceClient } from '../src/generated/client/worldmonitor/market/v1/service_client.ts';
-import { fetchStockAnalysesForTargets, getStockAnalysisTargets } from '../src/services/stock-analysis.ts';
+import { PremiumStockUnavailableError, fetchStockAnalysesForTargets, getStockAnalysisTargets } from '../src/services/stock-analysis.ts';
 
 const originalFetch = globalThis.fetch;
 const originalLocalStorage = globalThis.localStorage;
+const originalFinnhubApiKey = process.env.FINNHUB_API_KEY;
+const originalRelayUrl = process.env.WS_RELAY_URL;
 
 function createLocalStorageMock() {
   const store = new Map<string, string>();
@@ -74,6 +76,10 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
   if (originalLocalStorage) globalThis.localStorage = originalLocalStorage;
   else delete (globalThis as typeof globalThis & { localStorage?: Storage }).localStorage;
+  if (originalFinnhubApiKey == null) delete process.env.FINNHUB_API_KEY;
+  else process.env.FINNHUB_API_KEY = originalFinnhubApiKey;
+  if (originalRelayUrl == null) delete process.env.WS_RELAY_URL;
+  else process.env.WS_RELAY_URL = originalRelayUrl;
   delete process.env.GROQ_API_KEY;
   delete process.env.OPENROUTER_API_KEY;
   delete process.env.OLLAMA_API_URL;
@@ -160,5 +166,53 @@ describe('fetchStockAnalysesForTargets', () => {
       () => fetchStockAnalysesForTargets([{ symbol: 'AAPL', name: 'Apple', display: 'AAPL' }]),
       (error: unknown) => error instanceof ApiError && error.statusCode === 401,
     );
+  });
+
+  it('surfaces missing fallback configuration when the backend reports it', async () => {
+    globalThis.fetch = (async () => {
+      return new Response(JSON.stringify({
+        available: false,
+        summary: 'Premium stock history needs WS_RELAY_URL or FINNHUB_API_KEY.',
+      }), { status: 200 });
+    }) as typeof fetch;
+
+    await assert.rejects(
+      () => fetchStockAnalysesForTargets([{ symbol: 'AAPL', name: 'Apple', display: 'AAPL' }]),
+      (error: unknown) => error instanceof PremiumStockUnavailableError
+        && error.kind === 'config'
+        && /WS_RELAY_URL|FINNHUB_API_KEY/.test(error.message),
+    );
+  });
+});
+
+describe('fetchYahooHistory', () => {
+  it('falls back to Finnhub candles when Yahoo chart history is throttled', async () => {
+    process.env.FINNHUB_API_KEY = 'test-finnhub-key';
+    delete process.env.WS_RELAY_URL;
+
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes('query1.finance.yahoo.com')) {
+        return new Response('Too Many Requests', { status: 429 });
+      }
+      if (url.includes('finnhub.io/api/v1/stock/candle')) {
+        return new Response(JSON.stringify({
+          s: 'ok',
+          t: Array.from({ length: 80 }, (_, index) => 1_700_000_000 + (index * 86_400)),
+          o: Array.from({ length: 80 }, (_, index) => 100 + (index * 0.4)),
+          h: Array.from({ length: 80 }, (_, index) => 101 + (index * 0.4)),
+          l: Array.from({ length: 80 }, (_, index) => 99 + (index * 0.4)),
+          c: Array.from({ length: 80 }, (_, index) => 100 + (index * 0.4)),
+          v: Array.from({ length: 80 }, (_, index) => 1_000_000 + (index * 5_000)),
+        }), { status: 200 });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as typeof fetch;
+
+    const history = await fetchYahooHistory('AAPL');
+
+    assert.ok(history);
+    assert.equal(history?.currency, 'USD');
+    assert.equal(history?.candles.length, 80);
   });
 });

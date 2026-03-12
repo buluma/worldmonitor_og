@@ -7,7 +7,8 @@ import type {
 import { callLlm } from '../../../_shared/llm';
 import { cachedFetchJson } from '../../../_shared/redis';
 import type { YahooChartResponse } from './_shared';
-import { fetchYahooChartData, sanitizeSymbol, UPSTREAM_TIMEOUT_MS } from './_shared';
+import { fetchYahooChartData, getPremiumStockHistoryConfigHint, sanitizeSymbol, UPSTREAM_TIMEOUT_MS } from './_shared';
+import { CHROME_UA } from '../../../_shared/constants';
 import { storeStockAnalysisSnapshot } from './premium-stock-store';
 import { searchRecentStockHeadlines } from './stock-news-search';
 
@@ -193,37 +194,108 @@ function uniqueRounded(values: number[]): number[] {
   return out;
 }
 
+type FinnhubCandleResponse = {
+  s?: string;
+  t?: number[];
+  o?: number[];
+  h?: number[];
+  l?: number[];
+  c?: number[];
+  v?: number[];
+};
+
+async function fetchFinnhubHistory(symbol: string): Promise<{ candles: Candle[]; currency: string } | null> {
+  const apiKey = process.env.FINNHUB_API_KEY?.trim();
+  if (!apiKey) return null;
+
+  const now = Math.floor(Date.now() / 1000);
+  const sixMonthsAgo = now - (180 * 24 * 60 * 60);
+  const url = new URL('https://finnhub.io/api/v1/stock/candle');
+  url.searchParams.set('symbol', symbol);
+  url.searchParams.set('resolution', 'D');
+  url.searchParams.set('from', String(sixMonthsAgo));
+  url.searchParams.set('to', String(now));
+  url.searchParams.set('token', apiKey);
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': CHROME_UA,
+      },
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+    });
+    if (!response.ok) return null;
+
+    const data = await response.json() as FinnhubCandleResponse;
+    if (data.s !== 'ok') return null;
+
+    const timestamps = data.t ?? [];
+    const opens = data.o ?? [];
+    const highs = data.h ?? [];
+    const lows = data.l ?? [];
+    const closes = data.c ?? [];
+    const volumes = data.v ?? [];
+
+    const candles: Candle[] = [];
+    for (let i = 0; i < timestamps.length; i++) {
+      const open = opens[i];
+      const high = highs[i];
+      const low = lows[i];
+      const close = closes[i];
+      if (![open, high, low, close].every((value) => typeof value === 'number' && Number.isFinite(value))) continue;
+      candles.push({
+        timestamp: (timestamps[i] ?? 0) * 1000,
+        open: open as number,
+        high: high as number,
+        low: low as number,
+        close: close as number,
+        volume: typeof volumes[i] === 'number' && Number.isFinite(volumes[i]) ? (volumes[i] as number) : 0,
+      });
+    }
+
+    if (candles.length < 30) return null;
+    return { candles, currency: 'USD' };
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchYahooHistory(symbol: string): Promise<{ candles: Candle[]; currency: string } | null> {
   const data = await fetchYahooChartData(symbol, '6mo', '1d');
-  if (!data) return null;
-  const result = data.chart?.result?.[0];
-  const quote = result?.indicators?.quote?.[0];
-  const timestamps = result?.timestamp ?? [];
-  const closes = quote?.close ?? [];
-  const opens = quote?.open ?? [];
-  const highs = quote?.high ?? [];
-  const lows = quote?.low ?? [];
-  const volumes = quote?.volume ?? [];
+  if (data) {
+    const result = data.chart?.result?.[0];
+    const quote = result?.indicators?.quote?.[0];
+    const timestamps = result?.timestamp ?? [];
+    const closes = quote?.close ?? [];
+    const opens = quote?.open ?? [];
+    const highs = quote?.high ?? [];
+    const lows = quote?.low ?? [];
+    const volumes = quote?.volume ?? [];
 
-  const candles: Candle[] = [];
-  for (let i = 0; i < timestamps.length; i++) {
-    const close = closes[i];
-    const open = opens[i];
-    const high = highs[i];
-    const low = lows[i];
-    if (![close, open, high, low].every((value) => typeof value === 'number' && Number.isFinite(value))) continue;
-    candles.push({
-      timestamp: (timestamps[i] ?? 0) * 1000,
-      open: open as number,
-      high: high as number,
-      low: low as number,
-      close: close as number,
-      volume: typeof volumes[i] === 'number' && Number.isFinite(volumes[i]) ? (volumes[i] as number) : 0,
-    });
+    const candles: Candle[] = [];
+    for (let i = 0; i < timestamps.length; i++) {
+      const close = closes[i];
+      const open = opens[i];
+      const high = highs[i];
+      const low = lows[i];
+      if (![close, open, high, low].every((value) => typeof value === 'number' && Number.isFinite(value))) continue;
+      candles.push({
+        timestamp: (timestamps[i] ?? 0) * 1000,
+        open: open as number,
+        high: high as number,
+        low: low as number,
+        close: close as number,
+        volume: typeof volumes[i] === 'number' && Number.isFinite(volumes[i]) ? (volumes[i] as number) : 0,
+      });
+    }
+
+    if (candles.length >= 30) {
+      return { candles, currency: result?.meta?.currency || 'USD' };
+    }
   }
 
-  if (candles.length < 30) return null;
-  return { candles, currency: result?.meta?.currency || 'USD' };
+  return fetchFinnhubHistory(symbol);
 }
 
 export function buildTechnicalSnapshot(candles: Candle[]): TechnicalSnapshot {
@@ -736,7 +808,7 @@ export function buildAnalysisResponse(params: {
   };
 }
 
-function buildEmptyAnalysisResponse(symbol: string, name: string, includeNews: boolean): AnalyzeStockResponse {
+function buildEmptyAnalysisResponse(symbol: string, name: string, includeNews: boolean, summary = ''): AnalyzeStockResponse {
   return {
     available: false,
     symbol,
@@ -751,7 +823,7 @@ function buildEmptyAnalysisResponse(symbol: string, name: string, includeNews: b
     volumeStatus: '',
     macdStatus: '',
     rsiStatus: '',
-    summary: '',
+    summary,
     action: '',
     confidence: '',
     technicalSummary: '',
@@ -827,5 +899,10 @@ export async function analyzeStock(
 
   if (cached) return cached;
 
-  return buildEmptyAnalysisResponse(symbol, name, includeNews);
+  return buildEmptyAnalysisResponse(
+    symbol,
+    name,
+    includeNews,
+    getPremiumStockHistoryConfigHint() || 'Premium stock analysis unavailable for this symbol.',
+  );
 }

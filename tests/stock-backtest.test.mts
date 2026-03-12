@@ -4,6 +4,7 @@ import { afterEach, describe, it } from 'node:test';
 import { backtestStock } from '../server/worldmonitor/market/v1/backtest-stock.ts';
 import { listStoredStockBacktests } from '../server/worldmonitor/market/v1/list-stored-stock-backtests.ts';
 import { ApiError, MarketServiceClient } from '../src/generated/client/worldmonitor/market/v1/service_client.ts';
+import { PremiumStockUnavailableError } from '../src/services/stock-analysis.ts';
 import { fetchStockBacktestsForTargets } from '../src/services/stock-backtest.ts';
 
 const originalFetch = globalThis.fetch;
@@ -275,6 +276,22 @@ describe('fetchStockBacktestsForTargets', () => {
     await assert.rejects(
       () => fetchStockBacktestsForTargets([{ symbol: 'AAPL', name: 'Apple' }], 7),
       (error: unknown) => error instanceof ApiError && error.statusCode === 401,
+    );
+  });
+
+  it('surfaces missing fallback configuration when the backend reports it', async () => {
+    globalThis.fetch = (async () => {
+      return new Response(JSON.stringify({
+        available: false,
+        summary: 'Premium stock history needs WS_RELAY_URL or FINNHUB_API_KEY.',
+      }), { status: 200 });
+    }) as typeof fetch;
+
+    await assert.rejects(
+      () => fetchStockBacktestsForTargets([{ symbol: 'AAPL', name: 'Apple' }], 7),
+      (error: unknown) => error instanceof PremiumStockUnavailableError
+        && error.kind === 'config'
+        && /WS_RELAY_URL|FINNHUB_API_KEY/.test(error.message),
     );
   });
 });

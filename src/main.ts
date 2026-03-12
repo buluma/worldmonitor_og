@@ -388,6 +388,23 @@ if ('__TAURI_INTERNALS__' in window || '__TAURI__' in window) {
   });
 }
 
+async function shouldRegisterServiceWorker(): Promise<boolean> {
+  if (import.meta.env.DEV) return false;
+
+  try {
+    const resp = await fetch('/sw.js', {
+      method: 'GET',
+      cache: 'no-store',
+      headers: { Accept: 'text/javascript, application/javascript, */*;q=0.1' },
+    });
+    if (!resp.ok) return false;
+    const contentType = resp.headers.get('content-type')?.toLowerCase() ?? '';
+    return !contentType.includes('text/html');
+  } catch {
+    return false;
+  }
+}
+
 if (!('__TAURI_INTERNALS__' in window) && !('__TAURI__' in window) && 'serviceWorker' in navigator) {
   // One-time nuke: clear stale SWs and caches from old deploys, then re-register fresh.
   // Safe to remove after 2026-03-20 when all users have cycled through.
@@ -412,17 +429,24 @@ if (!('__TAURI_INTERNALS__' in window) && !('__TAURI__' in window) && 'serviceWo
       window.location.reload();
     });
 
-    navigator.serviceWorker.register('/sw.js', { scope: '/' })
-      .then((registration) => {
-        console.log('[PWA] Service worker registered');
-        const swUpdateInterval = setInterval(async () => {
-          if (!navigator.onLine) return;
-          try { await registration.update(); } catch {}
-        }, 5 * 60 * 1000);
-        (window as unknown as Record<string, unknown>).__swUpdateInterval = swUpdateInterval;
-      })
-      .catch((err) => {
-        console.warn('[PWA] Service worker registration failed:', err);
-      });
+    void shouldRegisterServiceWorker().then((canRegister) => {
+      if (!canRegister) {
+        console.info('[PWA] Skipping service worker registration: /sw.js unavailable or not a worker script');
+        return;
+      }
+
+      navigator.serviceWorker.register('/sw.js', { scope: '/' })
+        .then((registration) => {
+          console.log('[PWA] Service worker registered');
+          const swUpdateInterval = setInterval(async () => {
+            if (!navigator.onLine) return;
+            try { await registration.update(); } catch {}
+          }, 5 * 60 * 1000);
+          (window as unknown as Record<string, unknown>).__swUpdateInterval = swUpdateInterval;
+        })
+        .catch((err) => {
+          console.warn('[PWA] Service worker registration failed:', err);
+        });
+    });
   }
 }
