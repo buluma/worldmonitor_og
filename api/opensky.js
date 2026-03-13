@@ -4,6 +4,24 @@ export const config = { runtime: 'edge' };
 
 const OPENSKY_PUBLIC_BASE = 'https://opensky-network.org/api/states/all';
 
+function degradedOpenSkyResponse(corsHeaders, reason, details) {
+  return new Response(JSON.stringify({
+    time: Date.now(),
+    states: [],
+    degraded: true,
+    error: reason,
+    details,
+  }), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=120, stale-if-error=300',
+      'X-WorldMonitor-Degraded': 'opensky',
+      ...corsHeaders,
+    },
+  });
+}
+
 async function fetchAnonymousOpenSky(req, corsHeaders) {
   try {
     const requestUrl = new URL(req.url);
@@ -27,16 +45,11 @@ async function fetchAnonymousOpenSky(req, corsHeaders) {
     });
   } catch (error) {
     const isTimeout = error?.name === 'AbortError';
-    return new Response(JSON.stringify({
-      error: isTimeout ? 'OpenSky anonymous timeout' : 'OpenSky anonymous request failed',
-      details: error?.message || String(error),
-    }), {
-      status: isTimeout ? 504 : 502,
-      headers: {
-        'Content-Type': 'application/json',
-        ...corsHeaders,
-      },
-    });
+    return degradedOpenSkyResponse(
+      corsHeaders,
+      isTimeout ? 'OpenSky anonymous timeout' : 'OpenSky anonymous request failed',
+      error?.message || String(error),
+    );
   }
 }
 
