@@ -6,8 +6,8 @@ import type {
   MineralProducer,
 } from '../../../../src/generated/server/worldmonitor/supply_chain/v1/service_server';
 
-import { cachedFetchJson } from '../../../_shared/redis.ts';
-import { MINERAL_PRODUCTION_2024 } from './_minerals-data.ts';
+import { cachedFetchJson } from '../../../_shared/redis';
+import { MINERAL_PRODUCTION_2024 } from './_minerals-data';
 // @ts-expect-error — .mjs module, no declaration file
 import { computeHHI, riskRating } from './_scoring.mjs';
 

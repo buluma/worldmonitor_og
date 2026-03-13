@@ -58,6 +58,11 @@ const sentryReleaseEnabled = Boolean(
   && sentryProject.length > 0,
 );
 
+function handleSentryBuildError(error: Error): void {
+  const message = error?.message || String(error);
+  console.warn(`[sentry] Build-time Sentry step failed: ${message}`);
+}
+
 function htmlVariantPlugin(): Plugin {
   return {
     name: 'html-variant',
@@ -824,10 +829,15 @@ export default defineConfig({
           org: process.env.SENTRY_ORG!,
           project: sentryProject.length === 1 ? sentryProject[0]! : sentryProject,
           authToken: process.env.SENTRY_AUTH_TOKEN!,
+          errorHandler: handleSentryBuildError,
           telemetry: false,
           release: {
             name: sentryReleaseName,
             inject: false,
+            create: false,
+            finalize: false,
+            setCommits: false,
+            deploy: false,
           },
         })]
       : []),

@@ -8,7 +8,7 @@ import type {
 import { UPSTREAM_TIMEOUT_MS } from './_shared';
 import { CHROME_UA } from '../../../_shared/constants';
 import { cachedFetchJson } from '../../../_shared/redis';
-import { sha256Hex } from '../../../_shared/hash.ts';
+import { sha256Hex } from '../../../_shared/hash';
 
 const REDIS_CACHE_KEY = 'intel:gdelt-docs:v1';
 const REDIS_CACHE_TTL = 600; // 10 min

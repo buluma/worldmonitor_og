@@ -7,7 +7,7 @@ import type {
   ThreatLevel as ProtoThreatLevel,
 } from '../../../../src/generated/server/worldmonitor/news/v1/service_server';
 import { cachedFetchJson, getCachedJsonBatch } from '../../../_shared/redis';
-import { sha256Hex } from '../../../_shared/hash.ts';
+import { sha256Hex } from '../../../_shared/hash';
 import { CHROME_UA } from '../../../_shared/constants';
 import { VARIANT_FEEDS, INTEL_SOURCES, type ServerFeed } from './_feeds';
 import { classifyByKeyword, type ThreatLevel } from './_classifier';

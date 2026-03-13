@@ -19,7 +19,7 @@ export {
 // Hash utility (unified FNV-1a 52-bit -- H-7 fix)
 // ========================================================================
 
-import { hashString } from '../../../_shared/hash.ts';
+import { hashString } from '../../../_shared/hash';
 export { hashString };
 
 // ========================================================================
