@@ -6,7 +6,6 @@ import type {
 } from '../../../../src/generated/server/worldmonitor/market/v1/service_server';
 import { callLlm } from '../../../_shared/llm';
 import { cachedFetchJson } from '../../../_shared/redis';
-import type { YahooChartResponse } from './_shared';
 import { fetchYahooChartData, getPremiumStockHistoryConfigHint, sanitizeSymbol, UPSTREAM_TIMEOUT_MS } from './_shared';
 import { CHROME_UA } from '../../../_shared/constants';
 import { storeStockAnalysisSnapshot } from './premium-stock-store';

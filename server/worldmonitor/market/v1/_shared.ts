@@ -123,9 +123,17 @@ export interface YahooChartResponse {
         regularMarketPrice: number;
         chartPreviousClose?: number;
         previousClose?: number;
+        currency?: string;
       };
+      timestamp?: number[];
       indicators?: {
-        quote?: Array<{ close?: (number | null)[] }>;
+        quote?: Array<{
+          open?: (number | null)[];
+          high?: (number | null)[];
+          low?: (number | null)[];
+          close?: (number | null)[];
+          volume?: (number | null)[];
+        }>;
       };
     }>;
   };

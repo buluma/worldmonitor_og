@@ -36,6 +36,16 @@ export const WTO_MEMBER_CODES: Record<string, string> = {
   '000': 'World',
 };
 
+let hasWarnedAboutMissingWtoApiKey = false;
+
+function shouldWarnAboutMissingWtoApiKey(): boolean {
+  const vercelEnv = (process.env.VERCEL_ENV || '').toLowerCase();
+  if (vercelEnv === 'production' || vercelEnv === 'preview') return true;
+
+  const nodeEnv = (process.env.NODE_ENV || '').toLowerCase();
+  return nodeEnv === 'production';
+}
+
 /**
  * Fetch JSON from the WTO Timeseries API.
  * Returns parsed JSON on success, or null if the API key is missing or the request fails.
@@ -49,7 +59,10 @@ export async function wtoFetch(
 ): Promise<any | null> {
   const apiKey = process.env.WTO_API_KEY;
   if (!apiKey) {
-    console.warn('[WTO] WTO_API_KEY not set in process.env');
+    if (!hasWarnedAboutMissingWtoApiKey && shouldWarnAboutMissingWtoApiKey()) {
+      hasWarnedAboutMissingWtoApiKey = true;
+      console.warn('[WTO] WTO_API_KEY not set in process.env');
+    }
     return null;
   }
 
