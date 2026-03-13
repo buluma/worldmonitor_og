@@ -902,6 +902,6 @@ export async function analyzeStock(
     symbol,
     name,
     includeNews,
-    getPremiumStockHistoryConfigHint() || 'Premium stock analysis unavailable for this symbol.',
+    getPremiumStockHistoryConfigHint() || 'Stock analysis unavailable for this symbol.',
   );
 }

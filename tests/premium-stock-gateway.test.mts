@@ -10,8 +10,8 @@ afterEach(() => {
   else process.env.WORLDMONITOR_VALID_KEYS = originalKeys;
 });
 
-describe('premium stock gateway enforcement', () => {
-  it('requires a World Monitor key for premium stock RPCs even from trusted browser origins', async () => {
+describe('stock gateway access', () => {
+  it('allows stock RPCs from trusted browser origins without a World Monitor key', async () => {
     const handler = createDomainGateway([
       {
         method: 'GET',
@@ -27,18 +27,18 @@ describe('premium stock gateway enforcement', () => {
 
     process.env.WORLDMONITOR_VALID_KEYS = 'real-key-123';
 
-    const premiumBlocked = await handler(new Request('https://worldmonitor.app/api/market/v1/analyze-stock?symbol=AAPL', {
+    const browserAllowed = await handler(new Request('https://worldmonitor.app/api/market/v1/analyze-stock?symbol=AAPL', {
       headers: { Origin: 'https://worldmonitor.app' },
     }));
-    assert.equal(premiumBlocked.status, 401);
+    assert.equal(browserAllowed.status, 200);
 
-    const premiumAllowed = await handler(new Request('https://worldmonitor.app/api/market/v1/analyze-stock?symbol=AAPL', {
+    const browserWithKeyAllowed = await handler(new Request('https://worldmonitor.app/api/market/v1/analyze-stock?symbol=AAPL', {
       headers: {
         Origin: 'https://worldmonitor.app',
         'X-WorldMonitor-Key': 'real-key-123',
       },
     }));
-    assert.equal(premiumAllowed.status, 200);
+    assert.equal(browserWithKeyAllowed.status, 200);
 
     const publicAllowed = await handler(new Request('https://worldmonitor.app/api/market/v1/list-market-quotes?symbols=AAPL', {
       headers: { Origin: 'https://worldmonitor.app' },

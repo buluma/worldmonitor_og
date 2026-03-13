@@ -57,7 +57,7 @@ export function hasYahooRelayConfigured(): boolean {
 export function getPremiumStockHistoryConfigHint(): string | null {
   const hasFinnhubHistory = !!process.env.FINNHUB_API_KEY?.trim();
   if (hasYahooRelayConfigured() || hasFinnhubHistory) return null;
-  return 'Premium stock history needs WS_RELAY_URL or FINNHUB_API_KEY.';
+  return 'Stock history needs WS_RELAY_URL or FINNHUB_API_KEY.';
 }
 
 export function shouldSkipLiveYahooFallback(): boolean {

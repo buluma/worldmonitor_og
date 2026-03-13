@@ -30,7 +30,7 @@ export class StockAnalysisPanel extends Panel {
   private readonly actionHandler: (event: Event) => void;
 
   constructor() {
-    super({ id: 'stock-analysis', title: 'Premium Stock Analysis' });
+    super({ id: 'stock-analysis', title: 'Stock Analysis' });
     this.actionHandler = (event: Event) => {
       const target = event.target as HTMLElement | null;
       const action = target?.closest<HTMLElement>('[data-stock-panel-action]')?.dataset.stockPanelAction;
@@ -50,7 +50,7 @@ export class StockAnalysisPanel extends Panel {
   public renderAnalyses(items: StockAnalysisResult[], historyBySymbol: StockAnalysisHistory = {}, source: 'live' | 'cached' = 'live'): void {
     if (items.length === 0) {
       this.setDataBadge('unavailable');
-      this.showRetrying('No premium stock analyses available yet.');
+      this.showRetrying('No stock analyses available yet.');
       return;
     }
 

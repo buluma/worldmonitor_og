@@ -18,7 +18,7 @@ export class StockBacktestPanel extends Panel {
   private readonly actionHandler: (event: Event) => void;
 
   constructor() {
-    super({ id: 'stock-backtest', title: 'Premium Backtesting' });
+    super({ id: 'stock-backtest', title: 'Stock Backtesting' });
     this.actionHandler = (event: Event) => {
       const target = event.target as HTMLElement | null;
       const action = target?.closest<HTMLElement>('[data-stock-panel-action]')?.dataset.stockPanelAction;
@@ -47,7 +47,7 @@ export class StockBacktestPanel extends Panel {
     const html = `
       <div style="display:flex;flex-direction:column;gap:12px">
         <div style="font-size:12px;color:var(--text-dim);line-height:1.5">
-          Historical replay of the premium stock-analysis signal engine over recent daily bars.
+          Historical replay of the stock-analysis signal engine over recent daily bars.
         </div>
         ${items.map((item) => `
           <section style="border:1px solid var(--border);background:rgba(255,255,255,0.03);padding:14px;display:flex;flex-direction:column;gap:10px">

@@ -143,7 +143,7 @@ describe('MarketServiceClient analyzeStock', () => {
 });
 
 describe('getStockAnalysisTargets', () => {
-  it('keeps the watchlist additive for premium targets', () => {
+  it('keeps the watchlist additive for stock-analysis targets', () => {
     globalThis.localStorage = createLocalStorageMock() as Storage;
     globalThis.localStorage.setItem('wm-market-watchlist-v1', JSON.stringify([
       { symbol: '^GSPC', name: 'S&P 500', display: 'SPX' },
@@ -157,7 +157,7 @@ describe('getStockAnalysisTargets', () => {
 });
 
 describe('fetchStockAnalysesForTargets', () => {
-  it('surfaces auth failures when every premium request is rejected', async () => {
+  it('surfaces auth failures when every stock-analysis request is rejected', async () => {
     globalThis.fetch = (async () => {
       return new Response(JSON.stringify({ error: 'Missing World Monitor key' }), { status: 401 });
     }) as typeof fetch;
@@ -172,7 +172,7 @@ describe('fetchStockAnalysesForTargets', () => {
     globalThis.fetch = (async () => {
       return new Response(JSON.stringify({
         available: false,
-        summary: 'Premium stock history needs WS_RELAY_URL or FINNHUB_API_KEY.',
+        summary: 'Stock history needs WS_RELAY_URL or FINNHUB_API_KEY.',
       }), { status: 200 });
     }) as typeof fetch;
 

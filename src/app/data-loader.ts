@@ -1064,7 +1064,7 @@ export class DataLoaderManager implements AppModule {
       const results = await fetchStockAnalysesForTargets(staleTargets);
       if (results.length === 0) {
         if (cachedSnapshots.length === 0) {
-          panel.showStarterEmptyState('No premium stock analyses are available for the current watchlist yet.');
+          panel.showStarterEmptyState('No stock analyses are available for the current watchlist yet.');
         }
         return;
       }

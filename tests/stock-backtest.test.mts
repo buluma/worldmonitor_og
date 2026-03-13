@@ -268,7 +268,7 @@ describe('MarketServiceClient listStoredStockBacktests', () => {
 });
 
 describe('fetchStockBacktestsForTargets', () => {
-  it('surfaces auth failures when every premium backtest request is rejected', async () => {
+  it('surfaces auth failures when every stock backtest request is rejected', async () => {
     globalThis.fetch = (async () => {
       return new Response(JSON.stringify({ error: 'Missing World Monitor key' }), { status: 401 });
     }) as typeof fetch;
@@ -283,7 +283,7 @@ describe('fetchStockBacktestsForTargets', () => {
     globalThis.fetch = (async () => {
       return new Response(JSON.stringify({
         available: false,
-        summary: 'Premium stock history needs WS_RELAY_URL or FINNHUB_API_KEY.',
+        summary: 'Stock history needs WS_RELAY_URL or FINNHUB_API_KEY.',
       }), { status: 200 });
     }) as typeof fetch;
 
