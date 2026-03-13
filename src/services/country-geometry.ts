@@ -17,8 +17,11 @@ const COUNTRY_GEOJSON_URLS = [
   'https://maps.worldmonitor.app/countries.geojson',
 ] as const;
 
-/** Optional higher-resolution boundary overrides sourced from Natural Earth (served from R2 CDN). */
-const COUNTRY_OVERRIDES_URL = 'https://maps.worldmonitor.app/country-boundary-overrides.geojson';
+/** Optional higher-resolution boundary overrides sourced from Natural Earth. */
+const COUNTRY_OVERRIDE_URLS = [
+  '/data/country-boundary-overrides.geojson',
+  'https://maps.worldmonitor.app/country-boundary-overrides.geojson',
+] as const;
 const COUNTRY_OVERRIDE_TIMEOUT_MS = 3_000;
 
 const POLITICAL_OVERRIDES: Record<string, string> = { 'CN-TW': 'TW' };
@@ -283,17 +286,18 @@ async function ensureLoaded(): Promise<void> {
       rebuildCountryIndex(data);
 
       const fetchAndApplyOverrides = async (signal?: AbortSignal): Promise<void> => {
-        try {
-          const overrideResp = await fetch(COUNTRY_OVERRIDES_URL, {
-            signal,
-          });
-          if (!overrideResp.ok) return;
-          const overrideData = (await overrideResp.json()) as FeatureCollection<Geometry>;
-          if (overrideData?.type === 'FeatureCollection' && Array.isArray(overrideData.features)) {
-            applyCountryGeometryOverrides(data, overrideData);
+        for (const url of COUNTRY_OVERRIDE_URLS) {
+          try {
+            const overrideResp = await fetch(url, { signal });
+            if (!overrideResp.ok) continue;
+            const overrideData = (await overrideResp.json()) as FeatureCollection<Geometry>;
+            if (overrideData?.type === 'FeatureCollection' && Array.isArray(overrideData.features)) {
+              applyCountryGeometryOverrides(data, overrideData);
+              return;
+            }
+          } catch {
+            // Try the next override source.
           }
-        } catch {
-          // Overrides optional; ignore fetch/parse errors
         }
       };
 
