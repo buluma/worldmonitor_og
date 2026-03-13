@@ -124,6 +124,8 @@ The dashboard monitors Israel's Home Front Command (Pikud HaOref) alert system f
 
 GPS jamming and spoofing — increasingly used as electronic warfare in conflict zones — is detected by analyzing ADS-B transponder data from aircraft that report GPS anomalies. Data is sourced from [gpsjam.org](https://gpsjam.org), which aggregates ADS-B Exchange data into H3 resolution-4 hexagonal grid cells.
 
+**Operational note**: production refresh is intended to run as a dedicated Railway cron service, not inside the always-on relay. Use the service-specific config file at `railway/gpsjam-cron.json`, set the Railway service's custom config path to that file, and provide `WINGBITS_API_KEY`, `UPSTASH_REDIS_REST_URL`, and `UPSTASH_REDIS_REST_TOKEN` on the cron service. The schedule is every 6 hours, while the Redis seed TTL is 48 hours, so missed runs do not immediately drop the layer.
+
 **Classification**: Each H3 cell reports the ratio of aircraft with GPS anomalies vs. total aircraft. Cells with fewer than 3 aircraft are excluded as statistically noisy. The remaining cells are classified:
 
 | Interference Level | Bad Aircraft % | Map Color |

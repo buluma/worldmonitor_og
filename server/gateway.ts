@@ -9,13 +9,13 @@
  * code for one domain per function, cutting cold-start cost by ~20×.
  */
 
-import { createRouter, type RouteDescriptor } from './router.ts';
-import { getCorsHeaders, isDisallowedOrigin } from './cors.ts';
+import { createRouter, type RouteDescriptor } from './router';
+import { getCorsHeaders, isDisallowedOrigin } from './cors';
 // @ts-expect-error — JS module, no declaration file
 import { validateApiKey } from '../api/_api-key.js';
-import { mapErrorToResponse } from './error-mapper.ts';
-import { checkRateLimit, checkEndpointRateLimit, hasEndpointRatePolicy } from './_shared/rate-limit.ts';
-import { drainResponseHeaders } from './_shared/response-headers.ts';
+import { mapErrorToResponse } from './error-mapper';
+import { checkRateLimit, checkEndpointRateLimit, hasEndpointRatePolicy } from './_shared/rate-limit';
+import { drainResponseHeaders } from './_shared/response-headers';
 import type { ServerOptions } from '../src/generated/server/worldmonitor/seismology/v1/service_server';
 import { withEdgeObservability } from '../api/_observability.js';
 
