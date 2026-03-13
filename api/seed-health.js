@@ -134,4 +134,6 @@ async function handler(req) {
   });
 }
 
-export default withEdgeObservability('/api/seed-health', handler);
+export default withEdgeObservability('/api/seed-health', handler, {
+  captureStatusFailures: false,
+});

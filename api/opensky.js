@@ -2,9 +2,49 @@ import { createRelayHandler } from './_relay.js';
 
 export const config = { runtime: 'edge' };
 
+const OPENSKY_PUBLIC_BASE = 'https://opensky-network.org/api/states/all';
+
+async function fetchAnonymousOpenSky(req, corsHeaders) {
+  try {
+    const requestUrl = new URL(req.url);
+    const upstreamUrl = `${OPENSKY_PUBLIC_BASE}${requestUrl.search || ''}`;
+    const response = await fetch(upstreamUrl, {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'Mozilla/5.0 (compatible; WorldMonitor/1.0; +https://worldmonitor.app)',
+      },
+      signal: AbortSignal.timeout(12_000),
+    });
+
+    const body = await response.text();
+    return new Response(body, {
+      status: response.status,
+      headers: {
+        'Content-Type': response.headers.get('content-type') || 'application/json',
+        'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120, stale-if-error=300',
+        ...corsHeaders,
+      },
+    });
+  } catch (error) {
+    const isTimeout = error?.name === 'AbortError';
+    return new Response(JSON.stringify({
+      error: isTimeout ? 'OpenSky anonymous timeout' : 'OpenSky anonymous request failed',
+      details: error?.message || String(error),
+    }), {
+      status: isTimeout ? 504 : 502,
+      headers: {
+        'Content-Type': 'application/json',
+        ...corsHeaders,
+      },
+    });
+  }
+}
+
 export default createRelayHandler({
   relayPath: '/opensky',
   timeout: 20000,
+  onlyOk: true,
+  fallback: fetchAnonymousOpenSky,
   cacheHeaders: () => ({
     'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=60, stale-if-error=300',
   }),

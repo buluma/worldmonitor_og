@@ -84,7 +84,10 @@ async function captureEdgeFailure(handlerName, request, status, error) {
   }
 }
 
-export function withEdgeObservability(handlerName, handler) {
+export function withEdgeObservability(handlerName, handler, options = {}) {
+  const captureStatusFailures = options.captureStatusFailures !== false;
+  const captureThrownFailures = options.captureThrownFailures !== false;
+
   return async function observedHandler(request) {
     ensureEdgeSentryInitialized();
 
@@ -109,14 +112,16 @@ export function withEdgeObservability(handlerName, handler) {
             const response = await handler(request);
             Sentry.setHttpStatus(span, response.status);
 
-            if (response.status >= 500) {
+            if (captureStatusFailures && response.status >= 500) {
               await captureEdgeFailure(handlerName, request, response.status, null);
             }
 
             return response;
           } catch (error) {
             Sentry.setHttpStatus(span, 500);
-            await captureEdgeFailure(handlerName, request, 500, error);
+            if (captureThrownFailures) {
+              await captureEdgeFailure(handlerName, request, 500, error);
+            }
             throw error;
           }
         },

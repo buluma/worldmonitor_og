@@ -90,4 +90,6 @@ async function handler(req) {
   });
 }
 
-export default withEdgeObservability('/api/env-health', handler);
+export default withEdgeObservability('/api/env-health', handler, {
+  captureStatusFailures: false,
+});

@@ -363,4 +363,6 @@ async function handler(req) {
   });
 }
 
-export default withEdgeObservability('/api/health', handler);
+export default withEdgeObservability('/api/health', handler, {
+  captureStatusFailures: false,
+});
