@@ -280,8 +280,10 @@ export function startSmartPollLoop(
 
   const computeDelay = (baseMs: number): number => {
     const jitterRange = baseMs * jitterFraction;
+    const minDelay = Math.max(minIntervalMs, Math.round(baseMs - jitterRange));
+    const maxDelay = Math.max(minDelay, Math.round(baseMs + jitterRange));
     const jittered = baseMs + ((Math.random() * 2 - 1) * jitterRange);
-    return Math.max(minIntervalMs, Math.round(jittered));
+    return Math.min(maxDelay, Math.max(minDelay, Math.round(jittered)));
   };
 
   const scheduleNext = () => {
@@ -317,13 +319,19 @@ export function startSmartPollLoop(
     activeController = controller;
 
     try {
-      const result = await poll({
+      const result = poll({
         signal: controller?.signal,
         reason,
         isHidden: hidden,
       });
+      const maybeThen = result && (typeof result === 'object' || typeof result === 'function')
+        ? Reflect.get(result, 'then')
+        : undefined;
+      const settledResult = typeof maybeThen === 'function'
+        ? await Promise.resolve(result)
+        : result;
 
-      if (result === false) {
+      if (settledResult === false) {
         backoffMultiplier = Math.min(backoffMultiplier * 2, maxBackoffMultiplier);
       } else {
         backoffMultiplier = 1;

@@ -63,6 +63,7 @@ describe('Legacy api/*.js endpoint allowlist', () => {
     'cache-purge.js',
     'contact.js',
     'download.js',
+    'env-health.js',
     'fwdstart.js',
     'geo.js',
     'gpsjam.js',

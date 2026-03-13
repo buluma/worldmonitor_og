@@ -8,8 +8,6 @@ const BOOTSTRAP_CACHE_KEYS = {
   earthquakes:      'seismology:earthquakes:v1',
   outages:          'infra:outages:v1',
   serviceStatuses:  'infra:service-statuses:v1',
-  marketQuotes:     'market:stocks-bootstrap:v1',
-  commodityQuotes:  'market:commodities-bootstrap:v1',
   sectors:          'market:sectors:v1',
   etfFlows:         'market:etf-flows:v1',
   macroSignals:     'economic:macro-signals:v1',
@@ -22,6 +20,8 @@ const BOOTSTRAP_CACHE_KEYS = {
   giving:           'giving:summary:v1',
   climateAnomalies: 'climate:anomalies:v1',
   wildfires:        'wildfire:fires:v1',
+  marketQuotes:     'market:stocks-bootstrap:v1',
+  commodityQuotes:  'market:commodities-bootstrap:v1',
   cyberThreats:     'cyber:threats-bootstrap:v2',
   techReadiness:    'economic:worldbank-techreadiness:v1',
   progressData:     'economic:worldbank-progress:v1',
@@ -40,8 +40,6 @@ const BOOTSTRAP_CACHE_KEYS = {
   iranEvents: 'conflict:iran-events:v1',
   ucdpEvents: 'conflict:ucdp-events:v1',
   temporalAnomalies: 'temporal:anomalies:v1',
-  weatherAlerts:     'weather:alerts:v1',
-  spending:          'economic:spending:v1',
 };
 
 const SLOW_KEYS = new Set([
@@ -54,7 +52,7 @@ const SLOW_KEYS = new Set([
 const FAST_KEYS = new Set([
   'earthquakes', 'outages', 'serviceStatuses', 'macroSignals', 'chokepoints',
   'marketQuotes', 'commodityQuotes', 'positiveGeoEvents', 'riskScores', 'flightDelays','insights', 'predictions',
-  'iranEvents', 'temporalAnomalies', 'weatherAlerts', 'spending', 'theaterPosture',
+  'iranEvents', 'temporalAnomalies', 'theaterPosture',
 ]);
 
 const TIER_CACHE = {

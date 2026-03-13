@@ -477,6 +477,7 @@ export class GlobeMap {
   constructor(container: HTMLElement, initialState: MapContainerState) {
     this.container = container;
     this.layers = { ...initialState.layers };
+    this.layers.dayNight = false;
     this.timeRange = initialState.timeRange;
     this.currentView = initialState.view;
 
@@ -800,6 +801,7 @@ export class GlobeMap {
     // Add overlay UI (zoom controls + layer panel)
     this.createControls();
     this.createLayerToggles();
+    this.hideLayerToggle('dayNight');
 
     // Load static datasets
     this.setHotspots(INTEL_HOTSPOTS);
@@ -1874,7 +1876,7 @@ export class GlobeMap {
 
   public setLayers(layers: MapLayers): void {
     const prev = this.layers;
-    this.layers = { ...layers };
+    this.layers = { ...layers, dayNight: false };
     let needMarkers = false, needArcs = false, needPaths = false, needPolygons = false;
     for (const k of Object.keys(layers) as (keyof MapLayers)[]) {
       if (prev[k] === layers[k]) continue;
@@ -1904,6 +1906,7 @@ export class GlobeMap {
   }
 
   public enableLayer(layer: keyof MapLayers): void {
+    if (layer === 'dayNight') return;
     if (this.layers[layer]) return;
     (this.layers as any)[layer] = true;
     const toggle = this.layerTogglesEl?.querySelector(`.layer-toggle[data-layer="${layer}"] input`) as HTMLInputElement | null;

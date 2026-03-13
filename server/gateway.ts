@@ -9,13 +9,13 @@
  * code for one domain per function, cutting cold-start cost by ~20×.
  */
 
-import { createRouter, type RouteDescriptor } from './router';
-import { getCorsHeaders, isDisallowedOrigin } from './cors';
+import { createRouter, type RouteDescriptor } from './router.ts';
+import { getCorsHeaders, isDisallowedOrigin } from './cors.ts';
 // @ts-expect-error — JS module, no declaration file
 import { validateApiKey } from '../api/_api-key.js';
-import { mapErrorToResponse } from './error-mapper';
-import { checkRateLimit, checkEndpointRateLimit, hasEndpointRatePolicy } from './_shared/rate-limit';
-import { drainResponseHeaders } from './_shared/response-headers';
+import { mapErrorToResponse } from './error-mapper.ts';
+import { checkRateLimit, checkEndpointRateLimit, hasEndpointRatePolicy } from './_shared/rate-limit.ts';
+import { drainResponseHeaders } from './_shared/response-headers.ts';
 import type { ServerOptions } from '../src/generated/server/worldmonitor/seismology/v1/service_server';
 import { withEdgeObservability } from '../api/_observability.js';
 
@@ -47,6 +47,13 @@ const TIER_CDN_CACHE: Record<CacheTier, string | null> = {
   'no-store': null,
 };
 
+const PREMIUM_RPC_PATHS = new Set([
+  '/api/market/v1/analyze-stock',
+  '/api/market/v1/get-stock-analysis-history',
+  '/api/market/v1/backtest-stock',
+  '/api/market/v1/list-stored-stock-backtests',
+]);
+
 const RPC_CACHE_TIER: Record<string, CacheTier> = {
   '/api/maritime/v1/get-vessel-snapshot': 'no-store',
 
@@ -69,14 +76,7 @@ const RPC_CACHE_TIER: Record<string, CacheTier> = {
   '/api/conflict/v1/list-acled-events': 'slow',
   '/api/military/v1/get-theater-posture': 'slow',
   '/api/infrastructure/v1/get-temporal-baseline': 'slow',
-  '/api/aviation/v1/list-airport-delays': 'static',
-  '/api/aviation/v1/get-airport-ops-summary': 'static',
-  '/api/aviation/v1/list-airport-flights': 'static',
-  '/api/aviation/v1/get-carrier-ops': 'slow',
-  '/api/aviation/v1/get-flight-status': 'fast',
-  '/api/aviation/v1/track-aircraft': 'no-store',
-  '/api/aviation/v1/search-flight-prices': 'medium',
-  '/api/aviation/v1/list-aviation-news': 'slow',
+  '/api/infrastructure/v1/list-temporal-anomalies': 'slow',
   '/api/market/v1/get-country-stock-index': 'slow',
 
   '/api/natural/v1/list-natural-events': 'slow',
@@ -127,8 +127,6 @@ const RPC_CACHE_TIER: Record<string, CacheTier> = {
   '/api/intelligence/v1/classify-event': 'static',
   '/api/intelligence/v1/get-country-facts': 'daily',
   '/api/news/v1/summarize-article-cache': 'slow',
-
-  '/api/imagery/v1/search-imagery': 'static',
 };
 
 /**
@@ -168,7 +166,7 @@ export function createDomainGateway(
     }
 
     // API key validation (origin-aware)
-    const keyCheck = validateApiKey(request);
+    const keyCheck = validateApiKey(request, { forceKey: PREMIUM_RPC_PATHS.has(pathname) });
     if (keyCheck.required && !keyCheck.valid) {
       return new Response(JSON.stringify({ error: keyCheck.error }), {
         status: 401,

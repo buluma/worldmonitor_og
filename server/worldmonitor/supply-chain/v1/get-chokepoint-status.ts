@@ -12,9 +12,9 @@ import type {
   AisDisruption,
 } from '../../../../src/generated/server/worldmonitor/maritime/v1/service_server';
 
-import { cachedFetchJson } from '../../../_shared/redis';
-import { listNavigationalWarnings } from '../../maritime/v1/list-navigational-warnings';
-import { getVesselSnapshot } from '../../maritime/v1/get-vessel-snapshot';
+import { cachedFetchJson } from '../../../_shared/redis.ts';
+import { listNavigationalWarnings } from '../../maritime/v1/list-navigational-warnings.ts';
+import { getVesselSnapshot } from '../../maritime/v1/get-vessel-snapshot.ts';
 // @ts-expect-error — .mjs module, no declaration file
 import { computeDisruptionScore, scoreToStatus, SEVERITY_SCORE, THREAT_LEVEL } from './_scoring.mjs';
 

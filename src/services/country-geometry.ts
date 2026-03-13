@@ -12,7 +12,10 @@ interface CountryHit {
   name: string;
 }
 
-const COUNTRY_GEOJSON_URL = 'https://maps.worldmonitor.app/countries.geojson';
+const COUNTRY_GEOJSON_URLS = [
+  '/data/countries.geojson',
+  'https://maps.worldmonitor.app/countries.geojson',
+] as const;
 
 /** Optional higher-resolution boundary overrides sourced from Natural Earth (served from R2 CDN). */
 const COUNTRY_OVERRIDES_URL = 'https://maps.worldmonitor.app/country-boundary-overrides.geojson';
@@ -252,32 +255,62 @@ async function ensureLoaded(): Promise<void> {
     if (typeof fetch !== 'function') return;
 
     try {
-      const response = await fetch(COUNTRY_GEOJSON_URL);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+      let data: FeatureCollection<Geometry> | null = null;
+      let lastError: Error | null = null;
+      for (const url of COUNTRY_GEOJSON_URLS) {
+        try {
+          const response = await fetch(url);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          const candidate = await response.json() as FeatureCollection<Geometry>;
+          if (candidate?.type === 'FeatureCollection' && Array.isArray(candidate.features)) {
+            data = candidate;
+            break;
+          }
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err));
+        }
       }
-
-      const data = await response.json() as FeatureCollection<Geometry>;
-      if (!data || data.type !== 'FeatureCollection' || !Array.isArray(data.features)) {
+      if (!data) {
+        throw lastError ?? new Error('countries geojson unavailable');
+      }
+      if (data.type !== 'FeatureCollection' || !Array.isArray(data.features)) {
         return;
       }
 
       loadedGeoJson = data;
       rebuildCountryIndex(data);
 
-      // Apply optional higher-resolution boundary overrides (sourced from Natural Earth)
-      try {
-        const overrideResp = await fetch(COUNTRY_OVERRIDES_URL, {
-          signal: makeTimeout(COUNTRY_OVERRIDE_TIMEOUT_MS),
-        });
-        if (overrideResp.ok) {
+      const fetchAndApplyOverrides = async (signal?: AbortSignal): Promise<void> => {
+        try {
+          const overrideResp = await fetch(COUNTRY_OVERRIDES_URL, {
+            signal,
+          });
+          if (!overrideResp.ok) return;
           const overrideData = (await overrideResp.json()) as FeatureCollection<Geometry>;
           if (overrideData?.type === 'FeatureCollection' && Array.isArray(overrideData.features)) {
             applyCountryGeometryOverrides(data, overrideData);
           }
+        } catch {
+          // Overrides optional; ignore fetch/parse errors
         }
-      } catch {
-        // Overrides optional; ignore fetch/parse errors
+      };
+
+      // Give already-resolved/stubbed responses a chance to apply synchronously,
+      // but do not block preload on a slow override CDN.
+      let eagerSettled = false;
+      const eagerController = new AbortController();
+      const eagerPromise = fetchAndApplyOverrides(eagerController.signal)
+        .finally(() => { eagerSettled = true; });
+      for (let i = 0; i < 8 && !eagerSettled; i += 1) {
+        await Promise.resolve();
+      }
+      if (eagerSettled) {
+        await eagerPromise;
+      } else {
+        eagerController.abort();
+        void fetchAndApplyOverrides(makeTimeout(COUNTRY_OVERRIDE_TIMEOUT_MS));
       }
     } catch (err) {
       console.warn('[country-geometry] Failed to load countries.geojson:', err);

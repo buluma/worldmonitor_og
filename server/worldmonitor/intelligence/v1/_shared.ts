@@ -26,4 +26,4 @@ export const TIER1_COUNTRIES: Record<string, string> = {
 // Helpers
 // ========================================================================
 
-export { hashString, sha256Hex } from '../../../_shared/hash';
+export { hashString, sha256Hex } from '../../../_shared/hash.ts';

@@ -23,7 +23,7 @@ describe('Bootstrap cache key registry', () => {
     const extractKeys = (src) => {
       const block = src.match(/BOOTSTRAP_CACHE_KEYS[^=]*=\s*\{([^}]+)\}/);
       if (!block) return {};
-      const re = /(\w+):\s+'([a-z_]+(?::[a-z_-]+)+:v\d+)'/g;
+      const re = /(\w+):\s+'([a-z_-]+(?::[a-z_-]+)+:v\d+)'/g;
       const keys = {};
       let m;
       while ((m = re.exec(block[1])) !== null) keys[m[1]] = m[2];
@@ -48,7 +48,7 @@ describe('Bootstrap cache key registry', () => {
       keys.push(m[1]);
     }
     for (const key of keys) {
-      assert.match(key, /^[a-z_]+(?::[a-z_-]+)+:v\d+$/, `Cache key "${key}" does not match expected pattern`);
+      assert.match(key, /^[a-z_-]+(?::[a-z_-]+)+:v\d+$/, `Cache key "${key}" does not match expected pattern`);
     }
   });
 
@@ -74,7 +74,7 @@ describe('Bootstrap cache key registry', () => {
     assert.equal(unique.size, names.length, `Found duplicate names: ${names.filter((n, i) => names.indexOf(n) !== i)}`);
   });
 
-  it('every cache key maps to a handler file with a matching cache key string', () => {
+  it('every cache key maps to a handler or seeding file with a matching cache key string', () => {
     const block = cacheKeysSrc.match(/BOOTSTRAP_CACHE_KEYS[^{]*\{([^}]+)\}/);
     const keyRe = /:\s+'([^']+)'/g;
     let m;
@@ -95,12 +95,19 @@ describe('Bootstrap cache key registry', () => {
       }
     }
     walk(handlerDirs);
-    const allHandlerCode = handlerFiles.map(f => readFileSync(f, 'utf-8')).join('\n');
+    const producerFiles = [
+      ...handlerFiles,
+      join(root, 'scripts', 'ais-relay.cjs'),
+      join(root, 'scripts', 'seed-wb-indicators.mjs'),
+      join(root, 'scripts', 'fetch-gpsjam.mjs'),
+      join(root, 'scripts', 'seed-ucdp-events.mjs'),
+    ];
+    const allProducerCode = producerFiles.map(f => readFileSync(f, 'utf-8')).join('\n');
 
     for (const key of keys) {
       assert.ok(
-        allHandlerCode.includes(key),
-        `Cache key "${key}" not found in any handler file`,
+        allProducerCode.includes(key),
+        `Cache key "${key}" not found in any handler or seed producer file`,
       );
     }
   });
@@ -214,7 +221,7 @@ describe('Bootstrap key hydration coverage', () => {
   it('every bootstrap key has a getHydratedData consumer in src/', () => {
     const bootstrapSrc = readFileSync(join(root, 'api', 'bootstrap.js'), 'utf-8');
     const block = bootstrapSrc.match(/BOOTSTRAP_CACHE_KEYS\s*=\s*\{([^}]+)\}/);
-    const keyRe = /(\w+):\s+'[a-z_]+(?::[a-z_-]+)+:v\d+'/g;
+    const keyRe = /(\w+):\s+'[a-z_-]+(?::[a-z_-]+)+:v\d+'/g;
     const keys = [];
     let m;
     while ((m = keyRe.exec(block[1])) !== null) keys.push(m[1]);
