@@ -743,6 +743,7 @@ canvas,
   font-size: 11px;
   cursor: pointer;
   transition: all 0.2s;
+  display: none
 }
 
 .copy-link-btn:hover {
