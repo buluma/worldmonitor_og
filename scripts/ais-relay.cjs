@@ -303,6 +303,8 @@ const telegramState = {
   lastPollAt: 0,
   lastError: null,
   startedAt: Date.now(),
+  selectedChannelSet: String(process.env.TELEGRAM_CHANNEL_SET || 'full').toLowerCase(),
+  effectiveChannelSet: null,
 };
 
 const orefState = {
@@ -324,10 +326,15 @@ function loadTelegramChannels() {
   // Relay is executed from scripts/, so resolve ../data.
   const p = path.join(__dirname, '..', 'data', 'telegram-channels.json');
   const set = String(process.env.TELEGRAM_CHANNEL_SET || 'full').toLowerCase();
+  telegramState.selectedChannelSet = set;
   try {
     const raw = JSON.parse(readFileSync(p, 'utf8'));
-    const bucket = raw?.channels?.[set];
+    const requestedBucket = raw?.channels?.[set];
+    const fallbackBucket = raw?.channels?.full;
+    const shouldFallback = set !== 'full' && (!Array.isArray(requestedBucket) || requestedBucket.length === 0);
+    const bucket = shouldFallback ? fallbackBucket : requestedBucket;
     const channels = Array.isArray(bucket) ? bucket : [];
+    telegramState.effectiveChannelSet = shouldFallback ? 'full' : set;
 
     telegramState.channels = channels
       .filter(c => c && typeof c.handle === 'string' && c.handle.length > 1)
@@ -342,6 +349,10 @@ function loadTelegramChannels() {
       }))
       .filter(c => c.enabled);
 
+    if (shouldFallback) {
+      console.warn(`[Relay] Telegram channel set "${set}" is empty — falling back to "full"`);
+    }
+
     if (!telegramState.channels.length) {
       console.warn(`[Relay] Telegram channel set "${set}" is empty — no channels to poll`);
     }
@@ -349,6 +360,7 @@ function loadTelegramChannels() {
     return telegramState.channels;
   } catch (e) {
     telegramState.channels = [];
+    telegramState.effectiveChannelSet = null;
     telegramState.lastError = `failed to load telegram-channels.json: ${e?.message || String(e)}`;
     return [];
   }
@@ -5590,6 +5602,8 @@ const server = http.createServer(async (req, res) => {
       densityZones: Array.from(densityGrid.values()).filter(c => c.vessels.size >= 2).length,
       telegram: {
         enabled: TELEGRAM_ENABLED,
+        selectedChannelSet: telegramState.selectedChannelSet,
+        effectiveChannelSet: telegramState.effectiveChannelSet,
         channels: telegramState.channels?.length || 0,
         items: telegramState.items?.length || 0,
         lastPollAt: telegramState.lastPollAt ? new Date(telegramState.lastPollAt).toISOString() : null,
