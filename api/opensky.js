@@ -42,7 +42,7 @@ async function fetchAnonymousOpenSky(req, corsHeaders) {
 
 export default createRelayHandler({
   relayPath: '/opensky',
-  timeout: 20000,
+  timeout: 6000,
   onlyOk: true,
   fallback: fetchAnonymousOpenSky,
   cacheHeaders: () => ({
