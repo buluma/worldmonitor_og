@@ -2,6 +2,7 @@ export const config = { runtime: 'edge' };
 
 import { ConvexHttpClient } from 'convex/browser';
 import { getCorsHeaders, isDisallowedOrigin } from './_cors.js';
+import { withEdgeObservability } from './_observability.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_EMAIL_LENGTH = 320;
@@ -191,7 +192,7 @@ async function sendConfirmationEmail(email, referralCode) {
   }
 }
 
-export default async function handler(req) {
+async function handler(req) {
   if (isDisallowedOrigin(req)) {
     return new Response(JSON.stringify({ error: 'Origin not allowed' }), {
       status: 403,
@@ -318,3 +319,5 @@ export default async function handler(req) {
     });
   }
 }
+
+export default withEdgeObservability('/api/register-interest', handler);

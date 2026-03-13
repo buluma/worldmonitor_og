@@ -1,6 +1,7 @@
 import { getCorsHeaders, isDisallowedOrigin } from './_cors.js';
 import { validateApiKey } from './_api-key.js';
 import { checkRateLimit } from './_rate-limit.js';
+import { withEdgeObservability } from './_observability.js';
 
 export function getRelayBaseUrl() {
   const relayUrl = process.env.WS_RELAY_URL;
@@ -30,7 +31,7 @@ export async function fetchWithTimeout(url, options, timeoutMs = 15000) {
 }
 
 export function createRelayHandler(cfg) {
-  return async function handler(req) {
+  return withEdgeObservability(cfg.name || cfg.relayPath || 'relay-handler', async function handler(req) {
     const corsHeaders = getCorsHeaders(req, 'GET, OPTIONS');
 
     if (isDisallowedOrigin(req)) {
@@ -116,5 +117,5 @@ export function createRelayHandler(cfg) {
         headers: { 'Content-Type': 'application/json', ...corsHeaders },
       });
     }
-  };
+  });
 }

@@ -209,6 +209,11 @@ jobs:
           VITE_DESKTOP_RUNTIME: '1'
           VITE_WS_API_URL: https://worldmonitor.app
           CONVEX_URL: ${{ secrets.CONVEX_URL }}
+          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
+          SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
@@ -234,6 +239,11 @@ jobs:
           VITE_DESKTOP_RUNTIME: '1'
           VITE_WS_API_URL: https://worldmonitor.app
           CONVEX_URL: ${{ secrets.CONVEX_URL }}
+          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
+          SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
         with:
           tagName: v__VERSION__
           releaseName: 'World Monitor v__VERSION__'
@@ -253,6 +263,11 @@ jobs:
           VITE_DESKTOP_RUNTIME: '1'
           VITE_WS_API_URL: https://worldmonitor.app
           CONVEX_URL: ${{ secrets.CONVEX_URL }}
+          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
+          SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
@@ -279,6 +294,11 @@ jobs:
           VITE_DESKTOP_RUNTIME: '1'
           VITE_WS_API_URL: https://worldmonitor.app
           CONVEX_URL: ${{ secrets.CONVEX_URL }}
+          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
+          SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
         with:
           tagName: v__VERSION__-tech
           releaseName: 'Tech Monitor v__VERSION__'
@@ -305,6 +325,16 @@ jobs:
             exit 1
           fi
           echo "Verified signed app bundle and embedded Node runtime: $NODE_PATH"
+
+      - name: Upload native debug symbols to Sentry
+        if: ${{ secrets.SENTRY_AUTH_TOKEN != '' && secrets.SENTRY_ORG != '' && secrets.SENTRY_DESKTOP_PROJECT != '' }}
+        shell: bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
+        run: |
+          npx sentry-cli debug-files upload --include-sources src-tauri/target
 
       - name: Strip GPU libraries from AppImage
         if: contains(matrix.platform, 'ubuntu')

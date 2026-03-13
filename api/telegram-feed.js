@@ -1,9 +1,10 @@
 import { getRelayBaseUrl, getRelayHeaders, fetchWithTimeout } from './_relay.js';
 import { getCorsHeaders, isDisallowedOrigin } from './_cors.js';
+import { withEdgeObservability } from './_observability.js';
 
 export const config = { runtime: 'edge' };
 
-export default async function handler(req) {
+async function handler(req) {
   const corsHeaders = getCorsHeaders(req, 'GET, OPTIONS');
 
   if (isDisallowedOrigin(req)) {
@@ -74,3 +75,5 @@ export default async function handler(req) {
     });
   }
 }
+
+export default withEdgeObservability('/api/telegram-feed', handler);

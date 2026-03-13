@@ -1,6 +1,7 @@
 export const config = { runtime: 'edge' };
+import { withEdgeObservability } from './_observability.js';
 
-export default function handler(req) {
+function handler(req) {
   const cfCountry = req.headers.get('cf-ipcountry');
   const country = (cfCountry && cfCountry !== 'T1' ? cfCountry : null) || req.headers.get('x-vercel-ip-country') || 'XX';
   return new Response(JSON.stringify({ country }), {
@@ -12,3 +13,5 @@ export default function handler(req) {
     },
   });
 }
+
+export default withEdgeObservability('/api/geo', handler);

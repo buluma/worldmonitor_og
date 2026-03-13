@@ -17,6 +17,7 @@ import { mapErrorToResponse } from './error-mapper';
 import { checkRateLimit, checkEndpointRateLimit, hasEndpointRatePolicy } from './_shared/rate-limit';
 import { drainResponseHeaders } from './_shared/response-headers';
 import type { ServerOptions } from '../src/generated/server/worldmonitor/seismology/v1/service_server';
+import { withEdgeObservability } from '../api/_observability.js';
 
 export const serverOptions: ServerOptions = { onError: mapErrorToResponse };
 
@@ -141,7 +142,7 @@ export function createDomainGateway(
 ): (req: Request) => Promise<Response> {
   const router = createRouter(routes);
 
-  return async function handler(originalRequest: Request): Promise<Response> {
+  return withEdgeObservability('domain-gateway', async function handler(originalRequest: Request): Promise<Response> {
     let request = originalRequest;
     const rawPathname = new URL(request.url).pathname;
     const pathname = rawPathname.length > 1 ? rawPathname.replace(/\/+$/, '') : rawPathname;
@@ -291,5 +292,5 @@ export function createDomainGateway(
       statusText: response.statusText,
       headers: mergedHeaders,
     });
-  };
+  });
 }

@@ -1,4 +1,5 @@
 export const config = { runtime: 'edge' };
+import { withEdgeObservability } from './_observability.js';
 
 const BOOTSTRAP_KEYS = {
   earthquakes:       'seismology:earthquakes:v1',
@@ -163,7 +164,7 @@ function dataSize(parsed) {
   return typeof parsed === 'string' ? parsed.length : 1;
 }
 
-export default async function handler(req) {
+async function handler(req) {
   const headers = {
     'Content-Type': 'application/json',
     'Cache-Control': 'no-cache, no-store',
@@ -361,3 +362,5 @@ export default async function handler(req) {
     headers,
   });
 }
+
+export default withEdgeObservability('/api/health', handler);

@@ -1,9 +1,10 @@
 // Non-sebuf: returns XML/HTML, stays as standalone Vercel function
 export const config = { runtime: 'edge' };
+import { withEdgeObservability } from './_observability.js';
 
 const RELEASES_URL = 'https://api.github.com/repos/koala73/worldmonitor/releases/latest';
 
-export default async function handler() {
+async function handler() {
   try {
     const res = await fetch(RELEASES_URL, {
       headers: {
@@ -43,3 +44,5 @@ export default async function handler() {
     });
   }
 }
+
+export default withEdgeObservability('/api/version', handler);

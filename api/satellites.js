@@ -1,4 +1,5 @@
 import { getCorsHeaders, isDisallowedOrigin } from './_cors.js';
+import { withEdgeObservability } from './_observability.js';
 
 export const config = { runtime: 'edge' };
 
@@ -40,7 +41,7 @@ async function fetchSatelliteData() {
   return data;
 }
 
-export default async function handler(req) {
+async function handler(req) {
   const corsHeaders = getCorsHeaders(req, 'GET, OPTIONS');
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders });
@@ -67,3 +68,5 @@ export default async function handler(req) {
     },
   });
 }
+
+export default withEdgeObservability('/api/satellites', handler);

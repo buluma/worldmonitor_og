@@ -1,5 +1,6 @@
 // Non-sebuf: returns XML/HTML, stays as standalone Vercel function
 export const config = { runtime: 'edge' };
+import { withEdgeObservability } from './_observability.js';
 
 const RELEASES_URL = 'https://api.github.com/repos/koala73/worldmonitor/releases/latest';
 const RELEASES_PAGE = 'https://github.com/koala73/worldmonitor/releases/latest';
@@ -38,7 +39,7 @@ function findAssetForVariant(assets, variant, platformMatcher) {
   }) ?? null;
 }
 
-export default async function handler(req) {
+async function handler(req) {
   const url = new URL(req.url);
   const platform = url.searchParams.get('platform');
   const variant = (url.searchParams.get('variant') || '').toLowerCase();
@@ -81,3 +82,5 @@ export default async function handler(req) {
     return Response.redirect(RELEASES_PAGE, 302);
   }
 }
+
+export default withEdgeObservability('/api/download', handler);

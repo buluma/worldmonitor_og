@@ -12,6 +12,7 @@
 
 import { getCorsHeaders, isDisallowedOrigin } from '../_cors.js';
 import { checkRateLimit } from '../_rate-limit.js';
+import { withEdgeObservability } from '../_observability.js';
 
 export const config = { runtime: 'edge' };
 
@@ -135,7 +136,7 @@ function getDateMonthsAgo(months) {
   return d.toISOString().split('T')[0];
 }
 
-export default async function handler(req) {
+async function handler(req) {
   const cors = getCorsHeaders(req, 'GET, OPTIONS');
 
   if (req.method === 'OPTIONS') {
@@ -205,3 +206,5 @@ export default async function handler(req) {
     },
   });
 }
+
+export default withEdgeObservability('/api/enrichment/company', handler);

@@ -3,21 +3,70 @@ import './styles/happy-theme.css';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import * as Sentry from '@sentry/browser';
 import { inject } from '@vercel/analytics';
+import { clearChunkReloadGuard, installChunkReloadGuard } from '@/bootstrap/chunk-reload';
+import { SITE_VARIANT } from '@/config/variant';
+import { debugGetCells, getCellCount } from '@/services/geo-convergence';
+import { initMetaTags } from '@/services/meta-tags';
+import { installRuntimeFetchPatch, installWebApiRedirect, isDesktopRuntime } from '@/services/runtime';
+import { loadDesktopSecrets } from '@/services/runtime-config';
+import { applyStoredTheme } from '@/utils/theme-manager';
 import { App } from './App';
 import { installUtmInterceptor } from './utils/utm';
 
+function parseClientSampleRate(rawValue: string | undefined, fallback: number): number {
+  const parsed = Number.parseFloat(rawValue ?? '');
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(1, Math.max(0, parsed));
+}
+
+const desktopRuntime = isDesktopRuntime();
 const sentryDsn = import.meta.env.VITE_SENTRY_DSN?.trim();
+const sentryTracesSampleRate = parseClientSampleRate(import.meta.env.VITE_SENTRY_TRACES_SAMPLE_RATE, 0.1);
+const sentryReplaySessionSampleRate = parseClientSampleRate(import.meta.env.VITE_SENTRY_REPLAY_SESSION_SAMPLE_RATE, 0);
+const sentryReplayOnErrorSampleRate = parseClientSampleRate(import.meta.env.VITE_SENTRY_REPLAY_ON_ERROR_SAMPLE_RATE, 1);
+const sentryEnvironment = desktopRuntime
+  ? (import.meta.env.DEV ? 'desktop-development' : 'desktop-production')
+  : (location.hostname === 'worldmonitor.app' || location.hostname.endsWith('.worldmonitor.app'))
+    ? 'production'
+    : location.hostname.includes('vercel.app')
+      ? 'preview'
+      : 'development';
+const sentryEnabled = Boolean(sentryDsn) && (
+  desktopRuntime || !['localhost', '127.0.0.1'].includes(location.hostname)
+);
+const sentryTracePropagationTargets = [
+  /^\/api\//,
+  /^https:\/\/(?:api\.)?worldmonitor\.app\/api\//,
+  /^https:\/\/(?:[A-Za-z0-9-]+\.)*vercel\.app\/api\//,
+  /^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?\/api\//,
+];
+const sentryIntegrations = [
+  Sentry.browserTracingIntegration(),
+  ...(
+    sentryReplaySessionSampleRate > 0 || sentryReplayOnErrorSampleRate > 0
+      ? [Sentry.replayIntegration()]
+      : []
+  ),
+];
 
 // Initialize Sentry error tracking (early as possible)
 Sentry.init({
   dsn: sentryDsn || undefined,
   release: `worldmonitor@${__APP_VERSION__}`,
-  environment: location.hostname === 'worldmonitor.app' ? 'production'
-    : location.hostname.includes('vercel.app') ? 'preview'
-    : 'development',
-  enabled: Boolean(sentryDsn) && !location.hostname.startsWith('localhost') && !('__TAURI_INTERNALS__' in window),
+  environment: sentryEnvironment,
+  enabled: sentryEnabled,
   sendDefaultPii: true,
-  tracesSampleRate: 0.1,
+  tracesSampleRate: sentryTracesSampleRate,
+  tracePropagationTargets: sentryTracePropagationTargets,
+  replaysSessionSampleRate: sentryReplaySessionSampleRate,
+  replaysOnErrorSampleRate: sentryReplayOnErrorSampleRate,
+  integrations: sentryIntegrations,
+  initialScope: {
+    tags: {
+      runtime: desktopRuntime ? 'desktop-webview' : 'web',
+      variant: SITE_VARIANT,
+    },
+  },
   ignoreErrors: [
     'Invalid WebGL2RenderingContext',
     'WebGL context lost',
@@ -283,14 +332,6 @@ Sentry.init({
 window.addEventListener('unhandledrejection', (e) => {
   if (e.reason?.name === 'NotAllowedError') e.preventDefault();
 });
-
-import { debugGetCells, getCellCount } from '@/services/geo-convergence';
-import { initMetaTags } from '@/services/meta-tags';
-import { installRuntimeFetchPatch, installWebApiRedirect } from '@/services/runtime';
-import { loadDesktopSecrets } from '@/services/runtime-config';
-import { applyStoredTheme } from '@/utils/theme-manager';
-import { SITE_VARIANT } from '@/config/variant';
-import { clearChunkReloadGuard, installChunkReloadGuard } from '@/bootstrap/chunk-reload';
 
 // Auto-reload on stale chunk 404s after deployment (Vite fires this for modulepreload failures).
 const chunkReloadStorageKey = installChunkReloadGuard(__APP_VERSION__);

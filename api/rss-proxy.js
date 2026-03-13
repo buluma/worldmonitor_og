@@ -3,6 +3,7 @@ import { validateApiKey } from './_api-key.js';
 import { checkRateLimit } from './_rate-limit.js';
 import { getRelayBaseUrl, getRelayHeaders, fetchWithTimeout } from './_relay.js';
 import RSS_ALLOWED_DOMAINS from './_rss-allowed-domains.js';
+import { withEdgeObservability } from './_observability.js';
 
 export const config = { runtime: 'edge' };
 
@@ -44,7 +45,7 @@ async function fetchViaRailway(feedUrl, timeoutMs) {
 // Allowed RSS feed domains — shared source of truth (shared/rss-allowed-domains.js)
 const ALLOWED_DOMAINS = RSS_ALLOWED_DOMAINS;
 
-export default async function handler(req) {
+async function handler(req) {
   const corsHeaders = getCorsHeaders(req, 'GET, OPTIONS');
 
   if (isDisallowedOrigin(req)) {
@@ -202,3 +203,5 @@ export default async function handler(req) {
     });
   }
 }
+
+export default withEdgeObservability('/api/rss-proxy', handler);

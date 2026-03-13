@@ -1,4 +1,5 @@
 export const config = { runtime: 'edge' };
+import { withEdgeObservability } from '../_observability.js';
 
 function parseFlag(value, fallback = '1') {
   if (value === '0' || value === '1') return value;
@@ -47,7 +48,7 @@ function sanitizeParentOrigin(raw, fallback) {
   return sanitizeAllowedOrigin(raw, fallback, ALLOWED_PARENT_ORIGINS);
 }
 
-export default async function handler(request) {
+async function handler(request) {
   const url = new URL(request.url);
   const videoId = sanitizeVideoId(url.searchParams.get('videoId'));
 
@@ -181,3 +182,5 @@ export default async function handler(request) {
     },
   });
 }
+
+export default withEdgeObservability('/api/youtube/embed', handler);

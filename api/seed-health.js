@@ -1,5 +1,6 @@
 import { getCorsHeaders, isDisallowedOrigin } from './_cors.js';
 import { validateApiKey } from './_api-key.js';
+import { withEdgeObservability } from './_observability.js';
 
 export const config = { runtime: 'edge' };
 
@@ -66,7 +67,7 @@ async function getMetaBatch(keys) {
   return result;
 }
 
-export default async function handler(req) {
+async function handler(req) {
   if (isDisallowedOrigin(req))
     return new Response('Forbidden', { status: 403 });
 
@@ -132,3 +133,5 @@ export default async function handler(req) {
     },
   });
 }
+
+export default withEdgeObservability('/api/seed-health', handler);

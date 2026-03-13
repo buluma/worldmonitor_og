@@ -338,7 +338,7 @@ The `.env.example` file documents every variable with descriptions and registrat
 | **Geopolitical**  | `ACLED_ACCESS_TOKEN`, `CLOUDFLARE_API_TOKEN`, `NASA_FIRMS_API_KEY`         | Free for researchers                       |
 | **Relay**         | `WS_RELAY_URL`, `VITE_WS_RELAY_URL`, `OPENSKY_CLIENT_ID/SECRET`            | Self-hosted                                |
 | **UI**            | `VITE_VARIANT`, `VITE_MAP_INTERACTION_MODE` (`flat` or `3d`, default `3d`) | N/A                                        |
-| **Observability** | `VITE_SENTRY_DSN` (optional, empty disables reporting)                     | N/A                                        |
+| **Observability** | `VITE_SENTRY_DSN`, `SENTRY_EDGE_DSN`, `SENTRY_DESKTOP_DSN`, `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN` | N/A                                        |
 
 See [`.env.example`](./.env.example) for the complete list with registration links.
 

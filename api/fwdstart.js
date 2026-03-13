@@ -1,9 +1,10 @@
 // Non-sebuf: returns XML/HTML, stays as standalone Vercel function
 import { getCorsHeaders, isDisallowedOrigin } from './_cors.js';
+import { withEdgeObservability } from './_observability.js';
 export const config = { runtime: 'edge' };
 
 // Scrape FwdStart newsletter archive and return as RSS
-export default async function handler(req) {
+async function handler(req) {
   const cors = getCorsHeaders(req);
   if (isDisallowedOrigin(req)) {
     return new Response(JSON.stringify({ error: 'Origin not allowed' }), { status: 403, headers: cors });
@@ -108,3 +109,5 @@ export default async function handler(req) {
     });
   }
 }
+
+export default withEdgeObservability('/api/fwdstart', handler);

@@ -1,4 +1,5 @@
 import { defineConfig, loadEnv, type Plugin } from 'vite';
+import { sentryVitePlugin } from '@sentry/vite-plugin';
 import { VitePWA } from 'vite-plugin-pwa';
 import { resolve, dirname, extname } from 'path';
 import { mkdir, readFile, writeFile } from 'fs/promises';
@@ -46,6 +47,16 @@ function brotliPrecompressPlugin(): Plugin {
 
 const activeVariant = process.env.VITE_VARIANT || 'full';
 const activeMeta = VARIANT_META[activeVariant] || VARIANT_META.full;
+const sentryProject = String(process.env.SENTRY_PROJECT || '')
+  .split(',')
+  .map(project => project.trim())
+  .filter(Boolean);
+const sentryReleaseName = `worldmonitor@${pkg.version}`;
+const sentryReleaseEnabled = Boolean(
+  process.env.SENTRY_AUTH_TOKEN
+  && process.env.SENTRY_ORG
+  && sentryProject.length > 0,
+);
 
 function htmlVariantPlugin(): Plugin {
   return {
@@ -805,6 +816,18 @@ export default defineConfig({
         enabled: false,
       },
     }),
+    ...(sentryReleaseEnabled
+      ? [sentryVitePlugin({
+          org: process.env.SENTRY_ORG!,
+          project: sentryProject.length === 1 ? sentryProject[0]! : sentryProject,
+          authToken: process.env.SENTRY_AUTH_TOKEN!,
+          telemetry: false,
+          release: {
+            name: sentryReleaseName,
+            inject: false,
+          },
+        })]
+      : []),
   ],
   resolve: {
     alias: {
@@ -818,6 +841,7 @@ export default defineConfig({
     },
   },
   build: {
+    sourcemap: sentryReleaseEnabled ? 'hidden' : false,
     // Geospatial bundles (maplibre/deck) are expected to be large even when split.
     // Raise warning threshold to reduce noisy false alarms in CI.
     chunkSizeWarningLimit: 1200,

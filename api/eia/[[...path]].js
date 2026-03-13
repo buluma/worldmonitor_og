@@ -1,9 +1,10 @@
 // EIA (Energy Information Administration) API proxy
 // Keeps API key server-side
 import { getCorsHeaders, isDisallowedOrigin } from '../_cors.js';
+import { withEdgeObservability } from '../_observability.js';
 export const config = { runtime: 'edge' };
 
-export default async function handler(req) {
+async function handler(req) {
   const cors = getCorsHeaders(req);
   if (isDisallowedOrigin(req)) {
     return new Response(JSON.stringify({ error: 'Origin not allowed' }), { status: 403, headers: cors });
@@ -115,3 +116,5 @@ export default async function handler(req) {
     headers: cors,
   });
 }
+
+export default withEdgeObservability('/api/eia', handler);

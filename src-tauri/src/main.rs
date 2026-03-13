@@ -15,6 +15,7 @@ use keyring::Entry;
 use reqwest::Url;
 use serde::Serialize;
 use serde_json::{Map, Value};
+use sentry::ClientInitGuard;
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Manager, RunEvent, Webview, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
@@ -56,6 +57,56 @@ const SUPPORTED_SECRET_KEYS: [&str; 27] = [
     "AVIATIONSTACK_API",
     "ICAO_API_KEY",
 ];
+
+fn parse_sentry_sample_rate(value: Option<&'static str>, fallback: f32) -> f32 {
+    value
+        .and_then(|raw| raw.trim().parse::<f32>().ok())
+        .filter(|rate| (0.0..=1.0).contains(rate))
+        .unwrap_or(fallback)
+}
+
+fn init_desktop_sentry() -> Option<ClientInitGuard> {
+    let dsn = option_env!("SENTRY_DESKTOP_DSN")
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+
+    let environment = option_env!("SENTRY_DESKTOP_ENVIRONMENT")
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            if cfg!(debug_assertions) {
+                "desktop-development".to_string()
+            } else {
+                "desktop-production".to_string()
+            }
+        });
+
+    let trace_sample_rate = parse_sentry_sample_rate(
+        option_env!("SENTRY_DESKTOP_TRACES_SAMPLE_RATE"),
+        0.1,
+    );
+
+    let guard = sentry::init((
+        dsn,
+        sentry::ClientOptions {
+            release: sentry::release_name!(),
+            environment: Some(environment.into()),
+            attach_stacktrace: true,
+            traces_sample_rate: trace_sample_rate,
+            ..Default::default()
+        },
+    ));
+
+    sentry::configure_scope(|scope| {
+        scope.set_tag("runtime", "desktop-native");
+        if let Some(variant) = option_env!("VITE_VARIANT").map(str::trim).filter(|value| !value.is_empty()) {
+            scope.set_tag("variant", variant);
+        }
+    });
+
+    Some(guard)
+}
 
 struct LocalApiState {
     child: Mutex<Option<Child>>,
@@ -1213,6 +1264,8 @@ fn resolve_appimage_gio_module_dir() -> Option<PathBuf> {
 }
 
 fn main() {
+    let _sentry = init_desktop_sentry();
+
     // Work around WebKitGTK rendering issues on Linux that can cause blank white
     // screens. DMA-BUF renderer failures are common with NVIDIA drivers and on
     // immutable distros (e.g. Bazzite/Fedora Atomic).  Setting the env var before
@@ -1382,6 +1435,10 @@ fn main() {
                     &app.handle(),
                     "ERROR",
                     &format!("local API sidecar failed to start: {err}"),
+                );
+                sentry::capture_message(
+                    &format!("local API sidecar failed to start: {err}"),
+                    sentry::Level::Error,
                 );
                 eprintln!("[tauri] local API sidecar failed to start: {err}");
             }

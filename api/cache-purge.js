@@ -1,4 +1,5 @@
 import { getCorsHeaders } from './_cors.js';
+import { withEdgeObservability } from './_observability.js';
 
 export const config = { runtime: 'edge' };
 
@@ -96,7 +97,7 @@ async function timingSafeEqual(a, b) {
   return diff === 0;
 }
 
-export default async function handler(req) {
+async function handler(req) {
   const corsHeaders = getCorsHeaders(req, 'POST, OPTIONS');
 
   if (req.method === 'OPTIONS') {
@@ -199,3 +200,5 @@ export default async function handler(req) {
   console.log('[cache-purge]', { mode: 'purge', matched: keyList.length, deleted, truncated, dryRun: false, ip, ts });
   return json({ matched: keyList.length, deleted, keys: keyList, dryRun: false, truncated }, 200, corsHeaders);
 }
+
+export default withEdgeObservability('/api/cache-purge', handler);
