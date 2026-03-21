@@ -20,12 +20,9 @@ async function handler(req) {
 
   const latN = Number(lat);
   const lonN = Number(lon);
-  if (!lat || !lon || isNaN(latN) || isNaN(lonN)
+  if (!lat || !lon || Number.isNaN(latN) || Number.isNaN(lonN)
       || latN < -90 || latN > 90 || lonN < -180 || lonN > 180) {
-    return new Response(JSON.stringify({ error: 'valid lat (-90..90) and lon (-180..180) required' }), {
-      status: 400,
-      headers: { ...cors, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse({ error: 'valid lat (-90..90) and lon (-180..180) required' }, 400, cors);
   }
 
   const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
@@ -64,10 +61,7 @@ async function handler(req) {
     );
 
     if (!resp.ok) {
-      return new Response(JSON.stringify({ error: `Nominatim ${resp.status}` }), {
-        status: 502,
-        headers: { ...cors, 'Content-Type': 'application/json' },
-      });
+      return jsonResponse({ error: `Nominatim ${resp.status}` }, 502, cors);
     }
 
     const data = await resp.json();
@@ -94,10 +88,7 @@ async function handler(req) {
       },
     });
   } catch (err) {
-    return new Response(JSON.stringify({ error: 'Nominatim request failed' }), {
-      status: 502,
-      headers: { ...cors, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse({ error: 'Nominatim request failed' }, 502, cors);
   }
 }
 

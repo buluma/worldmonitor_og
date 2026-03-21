@@ -26,13 +26,6 @@ function isDurableData(key) {
   return DURABLE_DATA_PREFIXES.some(p => key.startsWith(p));
 }
 
-function json(body, status, corsHeaders) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders },
-  });
-}
-
 function getRedisCredentials() {
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -105,20 +98,20 @@ async function handler(req) {
   }
 
   if (req.method !== 'POST') {
-    return json({ error: 'Method not allowed' }, 405, corsHeaders);
+    return jsonResponse({ error: 'Method not allowed' }, 405, corsHeaders);
   }
 
   const auth = req.headers.get('authorization') || '';
   const secret = process.env.RELAY_SHARED_SECRET;
   if (!secret || !(await timingSafeEqual(auth, `Bearer ${secret}`))) {
-    return json({ error: 'Unauthorized' }, 401, corsHeaders);
+    return jsonResponse({ error: 'Unauthorized' }, 401, corsHeaders);
   }
 
   let body;
   try {
     body = await req.json();
   } catch {
-    return json({ error: 'Invalid JSON body' }, 422, corsHeaders);
+    return jsonResponse({ error: 'Invalid JSON body' }, 422, corsHeaders);
   }
 
   const { keys: explicitKeys, patterns, dryRun = false } = body || {};
@@ -126,21 +119,21 @@ async function handler(req) {
   const hasPatterns = Array.isArray(patterns) && patterns.length > 0;
 
   if (!hasKeys && !hasPatterns) {
-    return json({ error: 'At least one of "keys" or "patterns" required' }, 422, corsHeaders);
+    return jsonResponse({ error: 'At least one of "keys" or "patterns" required' }, 422, corsHeaders);
   }
 
   if (hasKeys && explicitKeys.length > MAX_EXPLICIT_KEYS) {
-    return json({ error: `"keys" exceeds max of ${MAX_EXPLICIT_KEYS}` }, 422, corsHeaders);
+    return jsonResponse({ error: `"keys" exceeds max of ${MAX_EXPLICIT_KEYS}` }, 422, corsHeaders);
   }
 
   if (hasPatterns && patterns.length > MAX_PATTERNS) {
-    return json({ error: `"patterns" exceeds max of ${MAX_PATTERNS}` }, 422, corsHeaders);
+    return jsonResponse({ error: `"patterns" exceeds max of ${MAX_PATTERNS}` }, 422, corsHeaders);
   }
 
   if (hasPatterns) {
     for (const p of patterns) {
       if (typeof p !== 'string' || !p.endsWith('*') || p === '*') {
-        return json({ error: `Invalid pattern "${p}": must end with "*" and cannot be bare "*"` }, 422, corsHeaders);
+        return jsonResponse({ error: `Invalid pattern "${p}": must end with "*" and cannot be bare "*"` }, 422, corsHeaders);
       }
     }
   }
@@ -179,12 +172,12 @@ async function handler(req) {
 
   if (dryRun) {
     console.log('[cache-purge]', { mode: 'dry-run', matched: keyList.length, deleted: 0, truncated, dryRun: true, ip, ts });
-    return json({ matched: keyList.length, deleted: 0, keys: keyList, dryRun: true, truncated }, 200, corsHeaders);
+    return jsonResponse({ matched: keyList.length, deleted: 0, keys: keyList, dryRun: true, truncated }, 200, corsHeaders);
   }
 
   if (keyList.length === 0) {
     console.log('[cache-purge]', { mode: 'purge', matched: 0, deleted: 0, truncated, dryRun: false, ip, ts });
-    return json({ matched: 0, deleted: 0, keys: [], dryRun: false, truncated }, 200, corsHeaders);
+    return jsonResponse({ matched: 0, deleted: 0, keys: [], dryRun: false, truncated }, 200, corsHeaders);
   }
 
   let deleted = 0;
@@ -194,11 +187,11 @@ async function handler(req) {
     deleted = results.reduce((sum, r) => sum + (r.result || 0), 0);
   } catch (err) {
     console.log('[cache-purge]', { mode: 'purge-error', matched: keyList.length, error: err.message, ip, ts });
-    return json({ error: 'Redis pipeline failed' }, 502, corsHeaders);
+    return jsonResponse({ error: 'Redis pipeline failed' }, 502, corsHeaders);
   }
 
   console.log('[cache-purge]', { mode: 'purge', matched: keyList.length, deleted, truncated, dryRun: false, ip, ts });
-  return json({ matched: keyList.length, deleted, keys: keyList, dryRun: false, truncated }, 200, corsHeaders);
+  return jsonResponse({ matched: keyList.length, deleted, keys: keyList, dryRun: false, truncated }, 200, corsHeaders);
 }
 
 export default withEdgeObservability('/api/cache-purge', handler);

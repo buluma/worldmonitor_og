@@ -1,21 +1,16 @@
 /**
- * ListFireDetections RPC -- proxies the NASA FIRMS CSV API.
- *
- * Fetches active fire detections from all 9 monitored regions in parallel
- * and transforms the FIRMS CSV rows into proto-shaped FireDetection objects.
- *
- * Gracefully degrades to empty results when NASA_FIRMS_API_KEY is not set.
+ * ListFireDetections RPC -- reads seeded wildfire data from Railway seed cache.
+ * All external NASA FIRMS API calls happen in seed-wildfires.mjs on Railway.
  */
+
 import type {
   WildfireServiceHandler,
   ServerContext,
   ListFireDetectionsRequest,
   ListFireDetectionsResponse,
-  FireConfidence,
 } from '../../../../src/generated/server/worldmonitor/wildfire/v1/service_server';
 
-import { CHROME_UA } from '../../../_shared/constants';
-import { cachedFetchJson, getCachedJson } from '../../../_shared/redis';
+import { getCachedJson } from '../../../_shared/redis';
 
 const REDIS_CACHE_KEY = 'wildfire:fires:v1';
 const REDIS_CACHE_TTL = 3600; // 1h — NASA FIRMS VIIRS NRT updates every ~3 hours
@@ -204,5 +199,4 @@ export const listFireDetections: WildfireServiceHandler['listFireDetections'] = 
     }
     return { fireDetections: [], pagination: undefined };
   }
-  return result || { fireDetections: [], pagination: undefined };
 };

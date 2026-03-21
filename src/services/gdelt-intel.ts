@@ -1,4 +1,5 @@
 import type { Hotspot } from '@/types';
+import { getRpcBaseUrl } from '@/services/rpc-client';
 import { t } from '@/services/i18n';
 import {
   IntelligenceServiceClient,
@@ -6,6 +7,7 @@ import {
   type SearchGdeltDocumentsResponse,
 } from '@/generated/client/worldmonitor/intelligence/v1/service_client';
 import { createCircuitBreaker } from '@/utils';
+import { getHydratedData } from '@/services/bootstrap';
 
 export interface GdeltArticle {
   title: string;
@@ -63,7 +65,7 @@ export const INTEL_TOPICS: IntelTopic[] = [
   {
     id: 'intelligence',
     name: 'Intelligence',
-    query: '(espionage OR spy OR intelligence agency OR covert OR surveillance) sourcelang:eng',
+    query: '(espionage OR spy OR "intelligence agency" OR covert OR surveillance) sourcelang:eng',
     icon: '🕵️',
     description: 'Espionage, intelligence operations, surveillance',
   },
@@ -124,13 +126,14 @@ export function getIntelTopics(): IntelTopic[] {
 
 // ---- Sebuf client ----
 
-const client = new IntelligenceServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
+const client = new IntelligenceServiceClient(getRpcBaseUrl(), { fetch: (...args) => globalThis.fetch(...args) });
 const gdeltBreaker = createCircuitBreaker<SearchGdeltDocumentsResponse>({ name: 'GDELT Intelligence', cacheTtlMs: 10 * 60 * 1000, persistCache: true });
 const positiveGdeltBreaker = createCircuitBreaker<SearchGdeltDocumentsResponse>({ name: 'GDELT Positive', cacheTtlMs: 10 * 60 * 1000, persistCache: true });
 
 const emptyGdeltFallback: SearchGdeltDocumentsResponse = { articles: [], query: '', error: '' };
 
 const CACHE_TTL = 5 * 60 * 1000;
+const STALE_MAX = 60 * 60 * 1000; // 1h ceiling — never serve cache older than this
 const articleCache = new Map<string, { articles: GdeltArticle[]; timestamp: number }>();
 
 /** Map proto GdeltArticle (all required strings) to service GdeltArticle (optional fields) */
@@ -169,8 +172,17 @@ export async function fetchGdeltArticles(
   }, emptyGdeltFallback);
 
   if (resp.error) {
+    if (resp.error === 'seed-unavailable') {
+      // Seed expired on the server — return stale client cache only if within the
+      // staleness ceiling so we do not serve arbitrarily old headlines as current data.
+      if (cached && Date.now() - cached.timestamp < STALE_MAX) {
+        return cached.articles;
+      }
+      return [];
+    }
     console.warn(`[GDELT-Intel] RPC error: ${resp.error}`);
-    return cached?.articles || [];
+    if (cached && Date.now() - cached.timestamp < STALE_MAX) return cached.articles;
+    return [];
   }
 
   const articles: GdeltArticle[] = (resp.articles || []).map(toGdeltArticle);
@@ -184,7 +196,29 @@ export async function fetchHotspotContext(hotspot: Hotspot): Promise<GdeltArticl
   return fetchGdeltArticles(query, 8, '48h');
 }
 
+let _bootstrapConsumed = false;
+const _bootstrapData = new Map<string, TopicIntelligence>();
+
+function _consumeBootstrap(): void {
+  if (_bootstrapConsumed) return;
+  _bootstrapConsumed = true;
+  const raw = getHydratedData('gdeltIntel') as { topics?: Array<{ id: string; articles: GdeltArticle[]; fetchedAt?: string }> } | undefined;
+  if (!raw?.topics) return;
+  const now = new Date();
+  for (const entry of raw.topics) {
+    const topic = INTEL_TOPICS.find(t => t.id === entry.id);
+    if (!topic || !entry.articles?.length) continue;
+    _bootstrapData.set(entry.id, { topic, articles: entry.articles, fetchedAt: now });
+  }
+}
+
 export async function fetchTopicIntelligence(topic: IntelTopic): Promise<TopicIntelligence> {
+  _consumeBootstrap();
+  const bootstrapped = _bootstrapData.get(topic.id);
+  if (bootstrapped) {
+    _bootstrapData.delete(topic.id);
+    return bootstrapped;
+  }
   const articles = await fetchGdeltArticles(topic.query, 10, '24h');
   return {
     topic,
@@ -214,7 +248,7 @@ export function formatArticleDate(dateStr: string): string {
     const min = dateStr.slice(11, 13);
     const sec = dateStr.slice(13, 15);
     const date = new Date(`${year}-${month}-${day}T${hour}:${min}:${sec}Z`);
-    if (isNaN(date.getTime())) return '';
+    if (Number.isNaN(date.getTime())) return '';
 
     const now = Date.now();
     const diff = now - date.getTime();

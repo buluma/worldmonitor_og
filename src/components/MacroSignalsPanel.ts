@@ -1,4 +1,5 @@
 import { Panel } from './Panel';
+import { getRpcBaseUrl } from '@/services/rpc-client';
 import { escapeHtml } from '@/utils/sanitize';
 import { t } from '@/services/i18n';
 import { EconomicServiceClient } from '@/generated/client/worldmonitor/economic/v1/service_client';
@@ -23,7 +24,7 @@ interface MacroSignalData {
   unavailable?: boolean;
 }
 
-const economicClient = new EconomicServiceClient('', { fetch: (...args) => globalThis.fetch(...args) });
+const economicClient = new EconomicServiceClient(getRpcBaseUrl(), { fetch: (...args) => globalThis.fetch(...args) });
 
 /** Map proto response (optional fields = undefined) to MacroSignalData (null for absent values). */
 function mapProtoToData(r: GetMacroSignalsResponse): MacroSignalData {
@@ -106,6 +107,13 @@ function donutGaugeSvg(value: number | null, size = 48): string {
   </svg>`;
 }
 
+function fgSparklineColor(status: string): string {
+  const s = status.toUpperCase();
+  if (['GREED', 'EXTREME GREED'].includes(s)) return '#4caf50';
+  if (['FEAR', 'EXTREME FEAR'].includes(s)) return '#f44336';
+  return '#4fc3f7';
+}
+
 function statusBadgeClass(status: string): string {
   const s = status.toUpperCase();
   if (['BULLISH', 'RISK-ON', 'GROWING', 'PROFITABLE', 'ALIGNED', 'NORMAL', 'EXTREME GREED', 'GREED'].includes(s)) return 'badge-bullish';
@@ -126,8 +134,7 @@ export class MacroSignalsPanel extends Panel {
   private lastTimestamp = '';
 
   constructor() {
-    super({ id: 'macro-signals', title: t('panels.macroSignals'), showCount: false });
-    void this.fetchData();
+    super({ id: 'macro-signals', title: t('panels.macroSignals'), showCount: false, infoTooltip: t('components.macroSignals.infoTooltip') });
   }
 
   public async fetchData(): Promise<boolean> {
@@ -141,32 +148,16 @@ export class MacroSignalsPanel extends Panel {
       return true;
     }
 
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const res = await economicClient.getMacroSignals({});
-        if (!this.element?.isConnected) return false;
-        this.data = mapProtoToData(res);
-        this.error = null;
-
-        if (this.data && this.data.unavailable && attempt < 2) {
-          this.showRetrying(undefined, 20);
-          await new Promise(r => setTimeout(r, 20_000));
-          if (!this.element?.isConnected) return false;
-          continue;
-        }
-        break;
-      } catch (err) {
-        if (this.isAbortError(err)) return false;
-        if (!this.element?.isConnected) return false;
-        if (attempt < 2) {
-          this.showRetrying(undefined, 20);
-          await new Promise(r => setTimeout(r, 20_000));
-          if (!this.element?.isConnected) return false;
-          continue;
-        }
-        console.warn('[MacroSignals] Fetch error:', err);
-        this.error = null;
-      }
+    try {
+      const res = await economicClient.getMacroSignals({});
+      if (!this.element?.isConnected) return false;
+      this.data = mapProtoToData(res);
+      this.error = null;
+    } catch (err) {
+      if (this.isAbortError(err)) return false;
+      if (!this.element?.isConnected) return false;
+      console.warn('[MacroSignals] Fetch error:', err);
+      this.error = t('common.noDataShort');
     }
     this.loading = false;
     this.renderPanel();
@@ -246,7 +237,10 @@ export class MacroSignalsPanel extends Panel {
           <span class="signal-badge ${badgeClass}">${escapeHtml(fg.status)}</span>
         </div>
         <div class="signal-body signal-body-fg">
-          ${donutGaugeSvg(fg.value)}
+          <div style="display:flex;align-items:center;gap:8px">
+            ${donutGaugeSvg(fg.value)}
+            ${sparklineSvg(fg.history.map(h => h.value), 80, 28, fgSparklineColor(fg.status))}
+          </div>
         </div>
         <div class="signal-detail">
           <a href="https://alternative.me/crypto/fear-and-greed-index/" target="_blank" rel="noopener">alternative.me</a>

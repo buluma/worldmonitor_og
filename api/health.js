@@ -1,3 +1,5 @@
+import { jsonResponse } from './_json-response.js';
+
 export const config = { runtime: 'edge' };
 import { withEdgeObservability } from './_observability.js';
 
@@ -14,7 +16,7 @@ const BOOTSTRAP_KEYS = {
   techReadiness:     'economic:worldbank-techreadiness:v1',
   progressData:      'economic:worldbank-progress:v1',
   renewableEnergy:   'economic:worldbank-renewable:v1',
-  positiveGeoEvents: 'positive-events:geo-bootstrap:v1',
+  positiveGeoEvents: 'positive_events:geo-bootstrap:v1',
   riskScores:        'risk:scores:sebuf:stale:v1',
   naturalEvents:     'natural:events:v1',
   flightDelays:      'aviation:delays-bootstrap:v1',
@@ -28,6 +30,25 @@ const BOOTSTRAP_KEYS = {
   ucdpEvents:        'conflict:ucdp-events:v1',
   weatherAlerts:     'weather:alerts:v1',
   spending:          'economic:spending:v1',
+  techEvents:        'research:tech-events-bootstrap:v1',
+  gdeltIntel:        'intelligence:gdelt-intel:v1',
+  correlationCards:   'correlation:cards-bootstrap:v1',
+  forecasts:         'forecast:predictions:v2',
+  securityAdvisories: 'intelligence:advisories-bootstrap:v1',
+  customsRevenue:    'trade:customs-revenue:v1',
+  sanctionsPressure: 'sanctions:pressure:v1',
+  radiationWatch:    'radiation:observations:v1',
+  consumerPricesOverview:   'consumer-prices:overview:ae',
+  consumerPricesCategories: 'consumer-prices:categories:ae:30d',
+  consumerPricesMovers:     'consumer-prices:movers:ae:30d',
+  consumerPricesSpread:     'consumer-prices:retailer-spread:ae:essentials-ae',
+  consumerPricesFreshness:  'consumer-prices:freshness:ae',
+  groceryBasket:     'economic:grocery-basket:v1',
+  bigmac:            'economic:bigmac:v1',
+  nationalDebt:      'economic:national-debt:v1',
+  defiTokens:        'market:defi-tokens:v1',
+  aiTokens:          'market:ai-tokens:v1',
+  otherTokens:       'market:other-tokens:v1',
 };
 
 const STANDALONE_KEYS = {
@@ -37,11 +58,11 @@ const STANDALONE_KEYS = {
   bisExchange:           'economic:bis:eer:v1',
   bisCredit:             'economic:bis:credit:v1',
   shippingRates:         'supply_chain:shipping:v2',
-  chokepoints:           'supply_chain:chokepoints:v2',
+  chokepoints:           'supply_chain:chokepoints:v4',
   minerals:              'supply_chain:minerals:v2',
   giving:                'giving:summary:v1',
   gpsjam:                'intelligence:gpsjam:v2',
-  theaterPosture:        'theater-posture:sebuf:stale:v1',
+  theaterPosture:        'theater_posture:sebuf:stale:v1',
   theaterPostureLive:    'theater-posture:sebuf:v1',
   theaterPostureBackup:  'theater-posture:sebuf:backup:v1',
   riskScoresLive:        'risk:scores:sebuf:v1',
@@ -59,6 +80,12 @@ const STANDALONE_KEYS = {
   temporalAnomalies:     'temporal:anomalies:v1',
   displacement:          `displacement:summary:v1:${new Date().getFullYear()}`,
   satellites:            'intelligence:satellites:tle:v1',
+  portwatch:             'supply_chain:portwatch:v1',
+  corridorrisk:          'supply_chain:corridorrisk:v1',
+  chokepointTransits:    'supply_chain:chokepoint_transits:v1',
+  transitSummaries:      'supply_chain:transit-summaries:v1',
+  thermalEscalation:     'thermal:escalation:v1',
+  tariffTrendsUs:        'trade:tariffs:v1:840:all:10',
 };
 
 const SEED_META = {
@@ -66,53 +93,88 @@ const SEED_META = {
   wildfires:        { key: 'seed-meta:wildfire:fires',          maxStaleMin: 120 },
   outages:          { key: 'seed-meta:infra:outages',           maxStaleMin: 30 },
   climateAnomalies: { key: 'seed-meta:climate:anomalies',       maxStaleMin: 120 },
-  unrestEvents:     { key: 'seed-meta:unrest:events',           maxStaleMin: 30 },
+  unrestEvents:     { key: 'seed-meta:unrest:events',           maxStaleMin: 75 },
   cyberThreats:     { key: 'seed-meta:cyber:threats',           maxStaleMin: 480 },
   cryptoQuotes:     { key: 'seed-meta:market:crypto',           maxStaleMin: 30 },
   etfFlows:         { key: 'seed-meta:market:etf-flows',        maxStaleMin: 60 },
   gulfQuotes:       { key: 'seed-meta:market:gulf-quotes',      maxStaleMin: 30 },
   stablecoinMarkets:{ key: 'seed-meta:market:stablecoins',      maxStaleMin: 60 },
-  naturalEvents:    { key: 'seed-meta:natural:events',          maxStaleMin: 120 },
-  flightDelays:     { key: 'seed-meta:aviation:faa',            maxStaleMin: 60 },
-  predictions:      { key: 'seed-meta:prediction:markets',      maxStaleMin: 15 },
+  naturalEvents:    { key: 'seed-meta:natural:events',          maxStaleMin: 360 }, // 2h cron; 3x interval; was 120 (TTL was 60min — panel went dark before health alarmed)
+  flightDelays:     { key: 'seed-meta:aviation:faa',            maxStaleMin: 90 }, // CACHE_TTL=7200s; matches notamClosures from same cron
+  notamClosures:    { key: 'seed-meta:aviation:notam',          maxStaleMin: 90 },
+  predictions:      { key: 'seed-meta:prediction:markets',      maxStaleMin: 90 },
   insights:         { key: 'seed-meta:news:insights',           maxStaleMin: 30 },
   marketQuotes:     { key: 'seed-meta:market:stocks',         maxStaleMin: 30 },
   commodityQuotes:  { key: 'seed-meta:market:commodities',    maxStaleMin: 30 },
-  // RPC-populated keys — auto-tracked by cachedFetchJson seed-meta writes
-  serviceStatuses:  { key: 'seed-meta:infra:service-statuses',    maxStaleMin: 120 },
-  macroSignals:     { key: 'seed-meta:economic:macro-signals',    maxStaleMin: 60 },
-  bisPolicy:        { key: 'seed-meta:economic:bis:policy',       maxStaleMin: 2880 },
-  bisExchange:      { key: 'seed-meta:economic:bis:eer',          maxStaleMin: 2880 },
-  bisCredit:        { key: 'seed-meta:economic:bis:credit',       maxStaleMin: 2880 },
-  shippingRates:    { key: 'seed-meta:supply_chain:shipping',     maxStaleMin: 240 },
+  // RPC/warm-ping keys — seed-meta written by relay loops or handlers
+  // serviceStatuses: moved to ON_DEMAND — RPC-populated, no dedicated seed, goes stale when no users visit
+  cableHealth:      { key: 'seed-meta:cable-health',              maxStaleMin: 90 }, // ais-relay warm-ping runs every 30min; 90min = 3× interval catches missed pings without false positives
+  macroSignals:     { key: 'seed-meta:economic:macro-signals',    maxStaleMin: 20 },
+  bisPolicy:        { key: 'seed-meta:economic:bis:policy',       maxStaleMin: 10080 },
+  bisExchange:      { key: 'seed-meta:economic:bis:eer',          maxStaleMin: 10080 },
+  bisCredit:        { key: 'seed-meta:economic:bis:credit',       maxStaleMin: 10080 },
+  shippingRates:    { key: 'seed-meta:supply_chain:shipping',     maxStaleMin: 420 },
   chokepoints:      { key: 'seed-meta:supply_chain:chokepoints',  maxStaleMin: 60 },
   minerals:         { key: 'seed-meta:supply_chain:minerals',     maxStaleMin: 10080 },
   giving:           { key: 'seed-meta:giving:summary',            maxStaleMin: 10080 },
   gpsjam:           { key: 'seed-meta:intelligence:gpsjam',       maxStaleMin: 720 },
-  cableHealth:      { key: 'seed-meta:cable-health',              maxStaleMin: 60 },
   positiveGeoEvents:{ key: 'seed-meta:positive-events:geo',       maxStaleMin: 60 },
-  riskScores:       { key: 'seed-meta:risk:scores:sebuf',          maxStaleMin: 30 },
+  riskScores:       { key: 'seed-meta:intelligence:risk-scores',  maxStaleMin: 30 }, // CII warm-ping every 8min; 30min = ~3.5x interval,
   iranEvents:       { key: 'seed-meta:conflict:iran-events',      maxStaleMin: 10080 },
   ucdpEvents:       { key: 'seed-meta:conflict:ucdp-events',      maxStaleMin: 420 },
-  militaryFlights:  { key: 'seed-meta:military:flights',           maxStaleMin: 15 },
+  militaryFlights:  { key: 'seed-meta:military:flights',           maxStaleMin: 30 }, // cron ~10min (LIVE_TTL=600s); 30min = 3x interval,
+  militaryForecastInputs: { key: 'seed-meta:military-forecast-inputs', maxStaleMin: 30 }, // same cron as militaryFlights,
   satellites:       { key: 'seed-meta:intelligence:satellites',    maxStaleMin: 180 },
   weatherAlerts:    { key: 'seed-meta:weather:alerts',             maxStaleMin: 30 },
   spending:         { key: 'seed-meta:economic:spending',          maxStaleMin: 120 },
+  techEvents:       { key: 'seed-meta:research:tech-events',       maxStaleMin: 480 },
+  gdeltIntel:       { key: 'seed-meta:intelligence:gdelt-intel',   maxStaleMin: 420 }, // 6h cron + 1h grace; CACHE_TTL is 24h so per-topic merge always has a prior snapshot
+  forecasts:        { key: 'seed-meta:forecast:predictions',       maxStaleMin: 90 },
   sectors:          { key: 'seed-meta:market:sectors',             maxStaleMin: 30 },
   techReadiness:    { key: 'seed-meta:economic:worldbank-techreadiness:v1', maxStaleMin: 10080 },
   progressData:     { key: 'seed-meta:economic:worldbank-progress:v1',     maxStaleMin: 10080 },
   renewableEnergy:  { key: 'seed-meta:economic:worldbank-renewable:v1',    maxStaleMin: 10080 },
+  intlDelays:       { key: 'seed-meta:aviation:intl',           maxStaleMin: 90 },
+  faaDelays:        { key: 'seed-meta:aviation:faa',            maxStaleMin: 90 }, // same key as flightDelays; CACHE_TTL=7200s
+  theaterPosture:   { key: 'seed-meta:theater-posture',         maxStaleMin: 60 },
+  correlationCards: { key: 'seed-meta:correlation:cards',       maxStaleMin: 15 },
+  portwatch:           { key: 'seed-meta:supply_chain:portwatch',            maxStaleMin: 720 },
+  corridorrisk:        { key: 'seed-meta:supply_chain:corridorrisk',         maxStaleMin: 120 },
+  chokepointTransits:  { key: 'seed-meta:supply_chain:chokepoint_transits',  maxStaleMin: 30 }, // relay every 10min; 30min = 3x interval,
+  transitSummaries:    { key: 'seed-meta:supply_chain:transit-summaries',    maxStaleMin: 30 }, // relay every 10min; 30min = 3x interval,
+  usniFleet:           { key: 'seed-meta:military:usni-fleet',               maxStaleMin: 480 },
+  securityAdvisories:  { key: 'seed-meta:intelligence:advisories',           maxStaleMin: 120 },
+  customsRevenue:      { key: 'seed-meta:trade:customs-revenue',              maxStaleMin: 1440 },
+  sanctionsPressure:   { key: 'seed-meta:sanctions:pressure',                 maxStaleMin: 720 },
+  radiationWatch:      { key: 'seed-meta:radiation:observations',             maxStaleMin: 30 },
+  groceryBasket:       { key: 'seed-meta:economic:grocery-basket',            maxStaleMin: 10080 }, // weekly seed; 10080 = 7 days
+  bigmac:              { key: 'seed-meta:economic:bigmac',                    maxStaleMin: 10080 }, // weekly seed; 10080 = 7 days
+  thermalEscalation:   { key: 'seed-meta:thermal:escalation',                 maxStaleMin: 240 },
+  nationalDebt:        { key: 'seed-meta:economic:national-debt',              maxStaleMin: 10080 }, // 7 days — monthly seed
+  tariffTrendsUs:      { key: 'seed-meta:trade:tariffs:v1:840:all:10',        maxStaleMin: 900 },
+  consumerPricesOverview:   { key: 'seed-meta:consumer-prices:overview:ae',     maxStaleMin: 90 }, // seed TTL=30min; 3× interval
+  consumerPricesCategories: { key: 'seed-meta:consumer-prices:categories:ae:30d',            maxStaleMin: 90 },
+  consumerPricesMovers:     { key: 'seed-meta:consumer-prices:movers:ae:30d',               maxStaleMin: 90 },
+  consumerPricesSpread:     { key: 'seed-meta:consumer-prices:retailer-spread:ae:essentials-ae', maxStaleMin: 120 }, // TTL=60min; 2× interval
+  consumerPricesFreshness:  { key: 'seed-meta:consumer-prices:freshness:ae',    maxStaleMin: 30  }, // TTL=10min; 3× interval
+  tokenPanels:       { key: 'seed-meta:market:token-panels',                   maxStaleMin: 90 }, // cron every 30min; 3× interval
 };
 
 // Standalone keys that are populated on-demand by RPC handlers (not seeds).
 // Empty = WARN not CRIT since they only exist after first request.
 const ON_DEMAND_KEYS = new Set([
   'riskScoresLive',
-  'usniFleet', 'usniFleetStale', 'positiveEventsLive', 'cableHealth',
+  'usniFleetStale', 'positiveEventsLive',
   'bisPolicy', 'bisExchange', 'bisCredit',
   'macroSignals', 'shippingRates', 'chokepoints', 'minerals', 'giving',
   'cyberThreatsRpc', 'militaryBases', 'temporalAnomalies', 'displacement',
+  'corridorrisk', // intermediate key; data flows through transit-summaries:v1
+  'serviceStatuses', // RPC-populated; seed-meta written on fresh fetch only, goes stale between visits
 ]);
+
+// Keys where 0 records is a valid healthy state (e.g. no airports closed).
+// The key must still exist in Redis; only the record count can be 0.
+const EMPTY_DATA_OK_KEYS = new Set(['notamClosures', 'faaDelays', 'gpsjam']);
 
 // Cascade groups: if any key in the group has data, all empty siblings are OK.
 // Theater posture uses live → stale → backup fallback chain.
@@ -155,8 +217,8 @@ function dataSize(parsed) {
                       'papers', 'repos', 'articles', 'signals', 'rates', 'countries',
                       'chokepoints', 'minerals', 'anomalies', 'flows', 'bases', 'flights',
                       'theaters', 'fleets', 'warnings', 'closures', 'cables',
-                      'airports', 'categories', 'regions', 'entries', 'satellites',
-                      'sectors', 'statuses', 'scores']) {
+                      'airports', 'closedIcaos', 'categories', 'regions', 'entries', 'satellites',
+                      'sectors', 'statuses', 'scores', 'topics', 'advisories', 'months']) {
       if (Array.isArray(parsed[k])) return parsed[k].length;
     }
     return Object.keys(parsed).length;
@@ -167,7 +229,8 @@ function dataSize(parsed) {
 async function handler(req) {
   const headers = {
     'Content-Type': 'application/json',
-    'Cache-Control': 'no-cache, no-store',
+    'Cache-Control': 'private, no-store, max-age=0',
+    'CDN-Cache-Control': 'no-store',
     'Access-Control-Allow-Origin': '*',
   };
 
@@ -189,11 +252,11 @@ async function handler(req) {
     const commands = allKeys.map(k => ['GET', k]);
     results = await redisPipeline(commands);
   } catch (err) {
-    return new Response(JSON.stringify({
+    return jsonResponse({
       status: 'REDIS_DOWN',
       error: err.message,
       checkedAt: new Date(now).toISOString(),
-    }), { status: 503, headers });
+    }, 503, headers);
   }
 
   const keyValues = new Map();
@@ -293,6 +356,14 @@ async function handler(req) {
       if (cascadeCovered) {
         status = 'OK_CASCADE';
         okCount++;
+      } else if (EMPTY_DATA_OK_KEYS.has(name)) {
+        if (seedStale === true) {
+          status = 'STALE_SEED';
+          warnCount++;
+        } else {
+          status = 'OK';
+          okCount++;
+        }
       } else if (isOnDemand) {
         status = 'EMPTY_ON_DEMAND';
         warnCount++;
@@ -304,6 +375,14 @@ async function handler(req) {
       if (cascadeCovered) {
         status = 'OK_CASCADE';
         okCount++;
+      } else if (EMPTY_DATA_OK_KEYS.has(name)) {
+        if (seedStale === true) {
+          status = 'STALE_SEED';
+          warnCount++;
+        } else {
+          status = 'OK';
+          okCount++;
+        }
       } else if (isOnDemand) {
         status = 'EMPTY_ON_DEMAND';
         warnCount++;
@@ -325,8 +404,12 @@ async function handler(req) {
     checks[name] = entry;
   }
 
+  // On-demand keys that simply haven't been requested yet should not affect overall status.
+  const onDemandWarnCount = Object.values(checks).filter(c => c.status === 'EMPTY_ON_DEMAND').length;
+  const realWarnCount = warnCount - onDemandWarnCount;
+
   let overall;
-  if (critCount === 0 && warnCount === 0) overall = 'HEALTHY';
+  if (critCount === 0 && realWarnCount === 0) overall = 'HEALTHY';
   else if (critCount === 0) overall = 'WARNING';
   else if (critCount <= 3) overall = 'DEGRADED';
   else overall = 'UNHEALTHY';

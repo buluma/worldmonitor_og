@@ -7,7 +7,7 @@ export const config = { runtime: 'edge' };
 async function handler(req) {
   const cors = getCorsHeaders(req);
   if (isDisallowedOrigin(req)) {
-    return new Response(JSON.stringify({ error: 'Origin not allowed' }), { status: 403, headers: cors });
+    return jsonResponse({ error: 'Origin not allowed' }, 403, cors);
   }
   try {
     const response = await fetch('https://www.fwdstart.me/archive', {
@@ -49,7 +49,7 @@ async function handler(req) {
       if (dateMatch) {
         const dateStr = `${dateMatch[1]} ${dateMatch[2]}, ${dateMatch[3]}`;
         const parsed = new Date(dateStr);
-        if (!isNaN(parsed.getTime())) {
+        if (!Number.isNaN(parsed.getTime())) {
           pubDate = parsed;
         }
       }
@@ -97,16 +97,10 @@ async function handler(req) {
     });
   } catch (error) {
     console.error('FwdStart scraper error:', error);
-    return new Response(JSON.stringify({
+    return jsonResponse({
       error: 'Failed to fetch FwdStart archive',
       details: error.message
-    }), {
-      status: 502,
-      headers: {
-        'Content-Type': 'application/json',
-        ...cors,
-      },
-    });
+    }, 502, cors);
   }
 }
 

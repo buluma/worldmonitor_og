@@ -38,10 +38,12 @@ import type { KindnessPoint } from '@/services/kindness-data';
 import type { HappinessData } from '@/services/happiness-data';
 import type { SpeciesRecovery } from '@/services/conservation-data';
 import type { RenewableInstallation } from '@/services/renewable-installations';
+import type { RadiationObservation } from '@/services/radiation';
 import type { GpsJamHex } from '@/services/gps-interference';
 import type { SatellitePosition } from '@/services/satellites';
 import type { IranEvent } from '@/services/conflict';
 import type { ImageryScene } from '@/generated/server/worldmonitor/imagery/v1/service_server';
+import type { WebcamEntry, WebcamCluster } from '@/generated/client/worldmonitor/webcam/v1/service_client';
 
 export type TimeRange = '1h' | '6h' | '24h' | '48h' | '7d' | 'all';
 export type MapView = 'global' | 'america' | 'mena' | 'eu' | 'asia' | 'latam' | 'africa' | 'oceania';
@@ -94,7 +96,7 @@ export class MapContainer {
   private cachedOnCountryClicked: ((country: CountryClickPayload) => void) | null = null;
   private cachedOnHotspotClicked: ((hotspot: Hotspot) => void) | null = null;
   private cachedOnAircraftPositionsUpdate: ((positions: PositionSample[]) => void) | null = null;
-  private cachedOnMapContextMenu: ((payload: { lat: number; lon: number; screenX: number; screenY: number }) => void) | null = null;
+  private cachedOnMapContextMenu: ((payload: { lat: number; lon: number; screenX: number; screenY: number; countryCode?: string; countryName?: string }) => void) | null = null;
 
   // ─── Data cache (survives map mode switches) ───────────────────────────────
   private cachedEarthquakes: Earthquake[] | null = null;
@@ -118,6 +120,7 @@ export class MapContainer {
   private cachedUcdpEvents: UcdpGeoEvent[] | null = null;
   private cachedDisplacementFlows: DisplacementFlow[] | null = null;
   private cachedClimateAnomalies: ClimateAnomaly[] | null = null;
+  private cachedRadiationObservations: RadiationObservation[] | null = null;
   private cachedGpsJamming: GpsJamHex[] | null = null;
   private cachedSatellites: SatellitePosition[] | null = null;
   private cachedCyberThreats: CyberThreat[] | null = null;
@@ -133,6 +136,7 @@ export class MapContainer {
   private cachedEscalationFlights: MilitaryFlight[] | null = null;
   private cachedEscalationVessels: MilitaryVessel[] | null = null;
   private cachedImageryScenes: ImageryScene[] | null = null;
+  private cachedWebcams: Array<WebcamEntry | WebcamCluster> | null = null;
 
   constructor(container: HTMLElement, initialState: MapContainerState, preferGlobe = false) {
     this.container = container;
@@ -281,6 +285,7 @@ export class MapContainer {
     if (this.cachedUcdpEvents) this.setUcdpEvents(this.cachedUcdpEvents);
     if (this.cachedDisplacementFlows) this.setDisplacementFlows(this.cachedDisplacementFlows);
     if (this.cachedClimateAnomalies) this.setClimateAnomalies(this.cachedClimateAnomalies);
+    if (this.cachedRadiationObservations) this.setRadiationObservations(this.cachedRadiationObservations);
     if (this.cachedGpsJamming) this.setGpsJamming(this.cachedGpsJamming);
     if (this.cachedSatellites) this.setSatellites(this.cachedSatellites);
     if (this.cachedCyberThreats) this.setCyberThreats(this.cachedCyberThreats);
@@ -295,6 +300,11 @@ export class MapContainer {
     if (this.cachedHotspotActivity) this.updateHotspotActivity(this.cachedHotspotActivity);
     if (this.cachedEscalationFlights && this.cachedEscalationVessels) this.updateMilitaryForEscalation(this.cachedEscalationFlights, this.cachedEscalationVessels);
     if (this.cachedImageryScenes) this.setImageryScenes(this.cachedImageryScenes);
+    if (this.cachedWebcams) {
+      if (this.useGlobe) this.globeMap?.setWebcams(this.cachedWebcams);
+      else if (this.useDeckGL) this.deckGLMap?.setWebcams(this.cachedWebcams);
+      else this.svgMap?.setWebcams(this.cachedWebcams);
+    }
   }
 
   public isGlobeMode(): boolean {
@@ -400,6 +410,13 @@ export class MapContainer {
     if (this.useDeckGL) { this.deckGLMap?.setImageryScenes(scenes); }
   }
 
+  public setWebcams(markers: Array<WebcamEntry | WebcamCluster>): void {
+    this.cachedWebcams = markers;
+    if (this.useGlobe) { this.globeMap?.setWebcams(markers); return; }
+    if (this.useDeckGL) { this.deckGLMap?.setWebcams(markers); }
+    else { this.svgMap?.setWebcams(markers); }
+  }
+
   public setWeatherAlerts(alerts: WeatherAlert[]): void {
     this.cachedWeatherAlerts = alerts;
     if (this.useGlobe) { this.globeMap?.setWeatherAlerts(alerts); return; }
@@ -483,7 +500,7 @@ export class MapContainer {
   public setMilitaryVessels(vessels: MilitaryVessel[], clusters: MilitaryVesselCluster[] = []): void {
     this.cachedMilitaryVessels = vessels;
     this.cachedMilitaryVesselClusters = clusters;
-    if (this.useGlobe) { this.globeMap?.setMilitaryVessels(vessels); return; }
+    if (this.useGlobe) { this.globeMap?.setMilitaryVessels(vessels, clusters); return; }
     if (this.useDeckGL) { this.deckGLMap?.setMilitaryVessels(vessels, clusters); } else { this.svgMap?.setMilitaryVessels(vessels, clusters); }
   }
 
@@ -534,6 +551,16 @@ export class MapContainer {
     if (this.useGlobe) { this.globeMap?.setClimateAnomalies(anomalies); return; }
     if (this.useDeckGL) {
       this.deckGLMap?.setClimateAnomalies(anomalies);
+    }
+  }
+
+  public setRadiationObservations(observations: RadiationObservation[]): void {
+    this.cachedRadiationObservations = observations;
+    if (this.useGlobe) { this.globeMap?.setRadiationObservations(observations); return; }
+    if (this.useDeckGL) {
+      this.deckGLMap?.setRadiationObservations(observations);
+    } else {
+      this.svgMap?.setRadiationObservations(observations);
     }
   }
 
@@ -694,16 +721,7 @@ export class MapContainer {
 
   public getBbox(): string | null {
     if (this.useDeckGL) return this.deckGLMap?.getBbox() ?? null;
-    if (this.useGlobe) {
-      const center = this.globeMap?.getCenter();
-      if (!center) return null;
-      const R = 5;
-      const south = Math.max(-90, center.lat - R);
-      const north = Math.min(90, center.lat + R);
-      const west = Math.max(-180, center.lon - R);
-      const east = Math.min(180, center.lon + R);
-      return `${west.toFixed(4)},${south.toFixed(4)},${east.toFixed(4)},${north.toFixed(4)}`;
-    }
+    if (this.useGlobe) return this.globeMap?.getBbox() ?? null;
     return null;
   }
 
@@ -866,7 +884,7 @@ export class MapContainer {
     if (this.useDeckGL) { this.deckGLMap?.setOnCountryClick(callback); } else { this.svgMap?.setOnCountryClick(callback); }
   }
 
-  public onMapContextMenu(callback: (payload: { lat: number; lon: number; screenX: number; screenY: number }) => void): void {
+  public onMapContextMenu(callback: (payload: { lat: number; lon: number; screenX: number; screenY: number; countryCode?: string; countryName?: string }) => void): void {
     this.cachedOnMapContextMenu = callback;
     if (this.useGlobe) { this.globeMap?.setOnMapContextMenu(callback); return; }
     if (this.useDeckGL) { this.deckGLMap?.setOnMapContextMenu(callback); }
@@ -945,6 +963,7 @@ export class MapContainer {
     this.cachedUcdpEvents = null;
     this.cachedDisplacementFlows = null;
     this.cachedClimateAnomalies = null;
+    this.cachedRadiationObservations = null;
     this.cachedGpsJamming = null;
     this.cachedSatellites = null;
     this.cachedCyberThreats = null;

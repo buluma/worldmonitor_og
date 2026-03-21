@@ -98,11 +98,36 @@ async function redisDel(url, token, key) {
   return redisCommand(url, token, ['DEL', key]);
 }
 
+// Upstash REST calls surface transient network issues through fetch/undici
+// errors rather than stable app-level error codes, so we normalize the common
+// timeout/reset/DNS variants here before deciding to skip a seed run.
+export function isTransientRedisError(err) {
+  const message = String(err?.message || '');
+  const causeMessage = String(err?.cause?.message || '');
+  const code = String(err?.code || err?.cause?.code || '');
+  const combined = `${message} ${causeMessage} ${code}`;
+  return /UND_ERR_|Connect Timeout Error|fetch failed|ECONNRESET|ENOTFOUND|ETIMEDOUT|EAI_AGAIN/i.test(combined);
+}
+
 export async function acquireLock(domain, runId, ttlMs) {
   const { url, token } = getRedisCredentials();
   const lockKey = `seed-lock:${domain}`;
   const result = await redisCommand(url, token, ['SET', lockKey, runId, 'NX', 'PX', ttlMs]);
   return result?.result === 'OK';
+}
+
+export async function acquireLockSafely(domain, runId, ttlMs, opts = {}) {
+  const label = opts.label || domain;
+  try {
+    const locked = await withRetry(() => acquireLock(domain, runId, ttlMs), opts.maxRetries ?? 2, opts.delayMs ?? 1000);
+    return { locked, skipped: false, reason: null };
+  } catch (err) {
+    if (isTransientRedisError(err)) {
+      console.warn(`  SKIPPED: Redis unavailable during lock acquisition for ${label}`);
+      return { locked: false, skipped: true, reason: 'redis_unavailable' };
+    }
+    throw err;
+  }
 }
 
 export async function releaseLock(domain, runId) {
@@ -170,8 +195,9 @@ export async function withRetry(fn, maxRetries = 3, delayMs = 1000) {
     } catch (err) {
       lastErr = err;
       if (attempt < maxRetries) {
-        const wait = delayMs * Math.pow(2, attempt);
-        console.warn(`  Retry ${attempt + 1}/${maxRetries} in ${wait}ms: ${err.message || err}`);
+        const wait = delayMs * 2 ** attempt;
+        const cause = err.cause ? ` (cause: ${err.cause.message || err.cause.code || err.cause})` : '';
+        console.warn(`  Retry ${attempt + 1}/${maxRetries} in ${wait}ms: ${err.message || err}${cause}`);
         await new Promise(r => setTimeout(r, wait));
       }
     }
@@ -205,12 +231,211 @@ export async function writeExtraKey(key, data, ttl) {
     body: JSON.stringify(['SET', key, payload, 'EX', ttl]),
     signal: AbortSignal.timeout(10_000),
   });
-  if (!resp.ok) console.warn(`  Extra key ${key}: write failed (HTTP ${resp.status})`);
-  else console.log(`  Extra key ${key}: written`);
+  if (!resp.ok) throw new Error(`Extra key ${key}: write failed (HTTP ${resp.status})`);
+  console.log(`  Extra key ${key}: written`);
+}
+
+export async function writeExtraKeyWithMeta(key, data, ttl, recordCount, metaKeyOverride) {
+  await writeExtraKey(key, data, ttl);
+  const { url, token } = getRedisCredentials();
+  const metaKey = metaKeyOverride || `seed-meta:${key.replace(/:v\d+$/, '')}`;
+  const meta = { fetchedAt: Date.now(), recordCount: recordCount ?? 0 };
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(['SET', metaKey, JSON.stringify(meta), 'EX', 86400 * 7]),
+    signal: AbortSignal.timeout(5_000),
+  });
+  if (!resp.ok) console.warn(`  seed-meta ${metaKey}: write failed`);
+}
+
+export async function extendExistingTtl(keys, ttlSeconds = 600) {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) {
+    console.error('  Cannot extend TTL: missing Redis credentials');
+    return;
+  }
+  try {
+    // EXPIRE only refreshes TTL when key already exists (returns 0 on missing keys — no-op).
+    // Check each result: keys that returned 0 are missing/expired and cannot be extended.
+    const pipeline = keys.map(k => ['EXPIRE', k, ttlSeconds]);
+    const resp = await fetch(`${url}/pipeline`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(pipeline),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (resp.ok) {
+      const results = await resp.json();
+      const extended = results.filter(r => r?.result === 1).length;
+      const missing = results.filter(r => r?.result === 0).length;
+      if (extended > 0) console.log(`  Extended TTL on ${extended} key(s) (${ttlSeconds}s)`);
+      if (missing > 0) console.warn(`  WARNING: ${missing} key(s) were expired/missing — EXPIRE was a no-op; manual seed required`);
+    }
+  } catch (e) {
+    console.error(`  TTL extension failed: ${e.message}`);
+  }
 }
 
 export function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+// ---------------------------------------------------------------------------
+// Learned Routes — persist successful scrape URLs across seed runs
+// ---------------------------------------------------------------------------
+
+// Validate a URL's hostname against a list of allowed domains (same list used
+// for EXA includeDomains). Prevents stored-SSRF from Redis-persisted URLs.
+export function isAllowedRouteHost(url, allowedHosts) {
+  try {
+    const hostname = new URL(url).hostname.replace(/^www\./, '');
+    return allowedHosts.some(h => hostname === h || hostname.endsWith('.' + h));
+  } catch {
+    return false;
+  }
+}
+
+// Batch-read all learned routes for a scope via single Upstash pipeline request.
+// Returns Map<key → routeData>. Non-fatal: throws on HTTP error (caller catches).
+export async function bulkReadLearnedRoutes(scope, keys) {
+  if (!keys.length) return new Map();
+  const { url, token } = getRedisCredentials();
+  const pipeline = keys.map(k => ['GET', `seed-routes:${scope}:${k}`]);
+  const resp = await fetch(`${url}/pipeline`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(pipeline),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!resp.ok) throw new Error(`bulkReadLearnedRoutes HTTP ${resp.status}`);
+  const results = await resp.json();
+  const map = new Map();
+  for (let i = 0; i < keys.length; i++) {
+    const raw = results[i]?.result;
+    if (!raw) continue;
+    try { map.set(keys[i], JSON.parse(raw)); }
+    catch { console.warn(`  [routes] malformed JSON for ${keys[i]} — skipping`); }
+  }
+  return map;
+}
+
+// Batch-write route updates and hard-delete evicted routes via single pipeline.
+// Keys in updates always win over deletes (SET/DEL conflict resolution).
+// DELs are sent before SETs to ensure correct ordering.
+export async function bulkWriteLearnedRoutes(scope, updates, deletes = new Set()) {
+  const { url, token } = getRedisCredentials();
+  const ROUTE_TTL = 14 * 24 * 3600; // 14 days
+  const effectiveDeletes = [...deletes].filter(k => !updates.has(k));
+  const pipeline = [];
+  for (const k of effectiveDeletes)
+    pipeline.push(['DEL', `seed-routes:${scope}:${k}`]);
+  for (const [k, v] of updates)
+    pipeline.push(['SET', `seed-routes:${scope}:${k}`, JSON.stringify(v), 'EX', ROUTE_TTL]);
+  if (!pipeline.length) return;
+  const resp = await fetch(`${url}/pipeline`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(pipeline),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!resp.ok) throw new Error(`bulkWriteLearnedRoutes HTTP ${resp.status}`);
+  console.log(`  [routes] written: ${updates.size} updated, ${effectiveDeletes.length} deleted`);
+}
+
+// Decision tree for a single seed item: try learned route first, fall back to EXA.
+// All external I/O is injected so this function can be unit-tested without Redis or HTTP.
+//
+// Returns: { localPrice, sourceSite, routeUpdate, routeDelete }
+//   routeUpdate — route object to persist (null = nothing to write)
+//   routeDelete — true if the Redis key should be hard-deleted
+export async function processItemRoute({
+  learned,           // route object from Redis, or undefined/null on first run
+  allowedHosts,      // string[] — normalised (no www.), same as EXA includeDomains
+  currency,          // e.g. 'AED'
+  itemId,            // e.g. 'sugar' — used only for log messages
+  fxRate,            // number | null
+  itemUsdMax = null, // per-item bulk cap in USD (ITEM_USD_MAX[itemId])
+  tryDirectFetch,    // async (url, currency, itemId, fxRate) => number | null
+  scrapeFirecrawl,   // async (url, currency) => { price, source } | null
+  fetchViaExa,       // async () => { localPrice, sourceSite } | null  (caller owns EXA+FC logic)
+  sleep: sleepFn,    // async ms => void
+  firecrawlDelayMs = 0,
+}) {
+  let localPrice = null;
+  let sourceSite = '';
+  let routeUpdate = null;
+  let routeDelete = false;
+
+  if (learned) {
+    if (learned.failsSinceSuccess >= 2 || !isAllowedRouteHost(learned.url, allowedHosts)) {
+      routeDelete = true;
+      console.log(`    [learned✗] ${itemId}: evicting (${learned.failsSinceSuccess >= 2 ? '2 failures' : 'invalid host'})`);
+    } else {
+      localPrice = await tryDirectFetch(learned.url, currency, itemId, fxRate);
+      if (localPrice !== null) {
+        sourceSite = learned.url;
+        routeUpdate = { ...learned, hits: learned.hits + 1, failsSinceSuccess: 0, lastSuccessAt: Date.now() };
+        console.log(`    [learned✓] ${itemId}: ${localPrice} ${currency}`);
+      } else {
+        await sleepFn(firecrawlDelayMs);
+        const fc = await scrapeFirecrawl(learned.url, currency);
+        const fcSkip = fc && fxRate && itemUsdMax && (fc.price * fxRate) > itemUsdMax;
+        if (fc && !fcSkip) {
+          localPrice = fc.price;
+          sourceSite = fc.source;
+          routeUpdate = { ...learned, hits: learned.hits + 1, failsSinceSuccess: 0, lastSuccessAt: Date.now() };
+          console.log(`    [learned-FC✓] ${itemId}: ${localPrice} ${currency}`);
+        } else {
+          const newFails = learned.failsSinceSuccess + 1;
+          if (newFails >= 2) {
+            routeDelete = true;
+            console.log(`    [learned✗→EXA] ${itemId}: 2 failures — evicting, retrying via EXA`);
+          } else {
+            routeUpdate = { ...learned, failsSinceSuccess: newFails };
+            console.log(`    [learned✗→EXA] ${itemId}: failed (${newFails}/2), retrying via EXA`);
+          }
+        }
+      }
+    }
+  }
+
+  if (localPrice === null) {
+    const exaResult = await fetchViaExa();
+    if (exaResult?.localPrice != null) {
+      localPrice = exaResult.localPrice;
+      sourceSite = exaResult.sourceSite || '';
+      if (sourceSite && isAllowedRouteHost(sourceSite, allowedHosts)) {
+        routeUpdate = { url: sourceSite, lastSuccessAt: Date.now(), hits: 1, failsSinceSuccess: 0, currency };
+        console.log(`    [EXA->learned] ${itemId}: saved ${sourceSite.slice(0, 55)}`);
+      }
+    }
+  }
+
+  return { localPrice, sourceSite, routeUpdate, routeDelete };
+}
+
+/**
+ * Read the current canonical snapshot from Redis before a seed run overwrites it.
+ * Used by seed scripts that compute WoW deltas (bigmac, grocery-basket).
+ * Returns null on any error — scripts must handle first-run (no prev data).
+ */
+export async function readSeedSnapshot(canonicalKey) {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return null;
+  try {
+    const resp = await fetch(`${url}/get/${encodeURIComponent(canonicalKey)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!resp.ok) return null;
+    const { result } = await resp.json();
+    return result ? JSON.parse(result) : null;
+  } catch {
+    return null;
+  }
 }
 
 export function parseYahooChart(data, symbol) {
@@ -228,7 +453,14 @@ export function parseYahooChart(data, symbol) {
 }
 
 export async function runSeed(domain, resource, canonicalKey, fetchFn, opts = {}) {
-  const { validateFn, ttlSeconds, lockTtlMs = 120_000, extraKeys } = opts;
+  const {
+    validateFn,
+    ttlSeconds,
+    lockTtlMs = 120_000,
+    extraKeys,
+    afterPublish,
+    publishTransform,
+  } = opts;
   const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const startMs = Date.now();
 
@@ -237,25 +469,60 @@ export async function runSeed(domain, resource, canonicalKey, fetchFn, opts = {}
   console.log(`  Key:     ${canonicalKey}`);
 
   // Acquire lock
-  const locked = await acquireLock(`${domain}:${resource}`, runId, lockTtlMs);
-  if (!locked) {
+  const lockResult = await acquireLockSafely(`${domain}:${resource}`, runId, lockTtlMs, {
+    label: `${domain}:${resource}`,
+  });
+  if (lockResult.skipped) {
+    process.exit(0);
+  }
+  if (!lockResult.locked) {
     console.log('  SKIPPED: another seed run in progress');
     process.exit(0);
   }
 
+  // Phase 1: Fetch data (graceful on failure — extend TTL on stale data)
+  let data;
   try {
-    const data = await withRetry(fetchFn);
-    const publishResult = await atomicPublish(canonicalKey, data, validateFn, ttlSeconds);
+    data = await withRetry(fetchFn);
+  } catch (err) {
+    await releaseLock(`${domain}:${resource}`, runId);
+    const durationMs = Date.now() - startMs;
+    const cause = err.cause ? ` (cause: ${err.cause.message || err.cause.code || err.cause})` : '';
+    console.error(`  FETCH FAILED: ${err.message || err}${cause}`);
+
+    const ttl = ttlSeconds || 600;
+    const keys = [canonicalKey, `seed-meta:${domain}:${resource}`];
+    if (extraKeys) keys.push(...extraKeys.map(ek => ek.key));
+    await extendExistingTtl(keys, ttl);
+
+    console.log(`\n=== Failed gracefully (${Math.round(durationMs)}ms) ===`);
+    process.exit(0);
+  }
+
+  // Phase 2: Publish to Redis (rethrow on failure — data was fetched but not stored)
+  try {
+    const publishData = publishTransform ? publishTransform(data) : data;
+    const publishResult = await atomicPublish(canonicalKey, publishData, validateFn, ttlSeconds);
     if (publishResult.skipped) {
       const durationMs = Date.now() - startMs;
-      console.log(`  SKIPPED: validation failed (empty data) — preserving existing cache`);
+      const keys = [canonicalKey, `seed-meta:${domain}:${resource}`];
+      if (extraKeys) keys.push(...extraKeys.map(ek => ek.key));
+      await extendExistingTtl(keys, ttlSeconds || 600);
+      console.log(`  SKIPPED: validation failed (empty data) — extended existing cache TTL`);
       console.log(`\n=== Done (${Math.round(durationMs)}ms, no write) ===`);
       await releaseLock(`${domain}:${resource}`, runId);
       process.exit(0);
     }
     const { payloadBytes } = publishResult;
-    const recordCount = Array.isArray(data) ? data.length
-      : (data?.events?.length ?? data?.earthquakes?.length ?? data?.outages?.length
+    const topicArticleCount = Array.isArray(data?.topics)
+      ? data.topics.reduce((n, t) => n + (t?.articles?.length || t?.events?.length || 0), 0)
+      : undefined;
+    const recordCount = opts.recordCount != null
+      ? (typeof opts.recordCount === 'function' ? opts.recordCount(data) : opts.recordCount)
+      : Array.isArray(data) ? data.length
+      : (topicArticleCount
+        ?? data?.predictions?.length
+        ?? data?.events?.length ?? data?.earthquakes?.length ?? data?.outages?.length
         ?? data?.fireDetections?.length ?? data?.anomalies?.length ?? data?.threats?.length
         ?? data?.quotes?.length ?? data?.stablecoins?.length
         ?? data?.cables?.length ?? 0);
@@ -267,17 +534,30 @@ export async function runSeed(domain, resource, canonicalKey, fetchFn, opts = {}
       }
     }
 
+    if (afterPublish) {
+      await afterPublish(data, { canonicalKey, ttlSeconds, recordCount, runId });
+    }
+
     const meta = await writeFreshnessMetadata(domain, resource, recordCount, opts.sourceVersion);
 
     const durationMs = Date.now() - startMs;
     logSeedResult(domain, recordCount, durationMs, { payloadBytes });
 
-    // Verify
-    const verified = await verifySeedKey(canonicalKey);
+    // Verify (best-effort: write already succeeded, don't fail the job on transient read issues)
+    let verified = false;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        verified = !!(await verifySeedKey(canonicalKey));
+        if (verified) break;
+        if (attempt === 0) await new Promise(r => setTimeout(r, 500));
+      } catch {
+        if (attempt === 0) await new Promise(r => setTimeout(r, 500));
+      }
+    }
     if (verified) {
       console.log(`  Verified: data present in Redis`);
     } else {
-      console.warn('  WARNING: verification read returned null');
+      console.warn(`  WARNING: verification read returned null for ${canonicalKey} (write succeeded, may be transient)`);
     }
 
     console.log(`\n=== Done (${Math.round(durationMs)}ms) ===`);

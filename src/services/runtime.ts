@@ -10,7 +10,7 @@ const DEFAULT_REMOTE_HOSTS: Record<string, string> = {
 };
 
 const DEFAULT_LOCAL_API_PORT = 46123;
-const FORCE_DESKTOP_RUNTIME = import.meta.env.VITE_DESKTOP_RUNTIME === '1';
+const FORCE_DESKTOP_RUNTIME = ENV.VITE_DESKTOP_RUNTIME === '1';
 
 let _resolvedPort: number | null = null;
 let _portPromise: Promise<number> | null = null;
@@ -100,7 +100,7 @@ export function getApiBaseUrl(): string {
     return '';
   }
 
-  const configuredBaseUrl = import.meta.env.VITE_TAURI_API_BASE_URL;
+  const configuredBaseUrl = ENV.VITE_TAURI_API_BASE_URL;
   if (configuredBaseUrl) {
     return normalizeBaseUrl(configuredBaseUrl);
   }
@@ -108,10 +108,46 @@ export function getApiBaseUrl(): string {
   return `http://127.0.0.1:${getLocalApiPort()}`;
 }
 
+function isWorldMonitorWebHost(hostname: string): boolean {
+  return hostname === 'worldmonitor.app'
+    || hostname === 'www.worldmonitor.app'
+    || hostname.endsWith('.worldmonitor.app');
+}
+
+export function getConfiguredWebApiBaseUrl(): string {
+  if (WS_API_URL) {
+    return normalizeBaseUrl(WS_API_URL);
+  }
+
+  if (typeof window === 'undefined') {
+    return '';
+  }
+
+  if (isDesktopRuntime()) {
+    return '';
+  }
+
+  const hostname = window.location?.hostname ?? '';
+  if (!isWorldMonitorWebHost(hostname)) {
+    return '';
+  }
+
+  return DEFAULT_WEB_API_URL;
+}
+
+export function getCanonicalApiOrigin(): string {
+  return getConfiguredWebApiBaseUrl() || DEFAULT_WEB_API_URL;
+}
+
 export function getRemoteApiBaseUrl(): string {
-  const configuredRemoteBase = import.meta.env.VITE_TAURI_REMOTE_API_BASE_URL;
+  const configuredRemoteBase = ENV.VITE_TAURI_REMOTE_API_BASE_URL;
   if (configuredRemoteBase) {
     return normalizeBaseUrl(configuredRemoteBase);
+  }
+
+  const webApiBase = getConfiguredWebApiBaseUrl();
+  if (webApiBase) {
+    return webApiBase;
   }
 
   const fromHosts = DEFAULT_REMOTE_HOSTS[SITE_VARIANT] ?? DEFAULT_REMOTE_HOSTS.full ?? '';
@@ -135,6 +171,23 @@ export function toRuntimeUrl(path: string): string {
   return `${baseUrl}${path}`;
 }
 
+export function toApiUrl(path: string): string {
+  if (!path.startsWith('/')) {
+    return path;
+  }
+
+  if (isDesktopRuntime()) {
+    return toRuntimeUrl(path);
+  }
+
+  const webApiBase = getConfiguredWebApiBaseUrl();
+  if (!webApiBase) {
+    return path;
+  }
+
+  return `${webApiBase}${path}`;
+}
+
 function extractHostnames(...urls: (string | undefined)[]): string[] {
   const hosts: string[] = [];
   for (const u of urls) {
@@ -151,7 +204,7 @@ const APP_HOSTS = new Set([
   'api.worldmonitor.app',
   'localhost',
   '127.0.0.1',
-  ...extractHostnames(WS_API_URL, import.meta.env.VITE_WS_RELAY_URL),
+  ...extractHostnames(WS_API_URL, ENV.VITE_WS_RELAY_URL),
 ]);
 
 function isAppOriginUrl(urlStr: string): boolean {
@@ -213,6 +266,43 @@ export interface SmartPollOptions {
   minIntervalMs?: number;
   onError?: (error: unknown) => void;
   visibilityDebounceMs?: number;
+  visibilityHub?: VisibilityHub;
+}
+
+export class VisibilityHub {
+  private listeners = new Set<() => void>();
+  private listening = false;
+  private handler: (() => void) | null = null;
+
+  subscribe(cb: () => void): () => void {
+    this.listeners.add(cb);
+    this.ensureListening();
+    return () => {
+      this.listeners.delete(cb);
+      if (this.listeners.size === 0) this.stopListening();
+    };
+  }
+
+  destroy(): void {
+    this.stopListening();
+    this.listeners.clear();
+  }
+
+  private ensureListening(): void {
+    if (this.listening || !hasVisibilityApi()) return;
+    this.handler = () => {
+      for (const cb of this.listeners) cb();
+    };
+    document.addEventListener('visibilitychange', this.handler);
+    this.listening = true;
+  }
+
+  private stopListening(): void {
+    if (!this.listening || !this.handler) return;
+    document.removeEventListener('visibilitychange', this.handler);
+    this.handler = null;
+    this.listening = false;
+  }
 }
 
 export interface SmartPollLoopHandle {
@@ -391,7 +481,10 @@ export function startSmartPollLoop(
     handleVisibilityChange();
   };
 
-  if (hasVisibilityApi()) {
+  let unsubVisibility: (() => void) | null = null;
+  if (opts.visibilityHub) {
+    unsubVisibility = opts.visibilityHub.subscribe(onVisibilityChange);
+  } else if (hasVisibilityApi()) {
     document.addEventListener('visibilitychange', onVisibilityChange);
   }
 
@@ -409,7 +502,10 @@ export function startSmartPollLoop(
       clearVisibilityDebounce();
       activeController?.abort();
       activeController = null;
-      if (hasVisibilityApi()) {
+      if (unsubVisibility) {
+        unsubVisibility();
+        unsubVisibility = null;
+      } else if (hasVisibilityApi()) {
         document.removeEventListener('visibilitychange', onVisibilityChange);
       }
     },
@@ -621,17 +717,20 @@ function isAllowedRedirectTarget(url: string): boolean {
 
 export function installWebApiRedirect(): void {
   if (isDesktopRuntime() || typeof window === 'undefined') return;
-  if (!WS_API_URL) return;
-  if (!isAllowedRedirectTarget(WS_API_URL)) {
-    console.warn('[runtime] VITE_WS_API_URL blocked — not in hostname allowlist:', WS_API_URL);
+  const apiBase = getConfiguredWebApiBaseUrl();
+  if (!apiBase) return;
+  if (!isAllowedRedirectTarget(apiBase)) {
+    console.warn('[runtime] web API base blocked — not in hostname allowlist:', apiBase);
     return;
   }
   if ((window as unknown as Record<string, unknown>).__wmWebRedirectPatched) return;
 
   const nativeFetch = window.fetch.bind(window);
-  const API_BASE = WS_API_URL;
+  const API_BASE = apiBase;
   const shouldRedirectPath = (pathWithQuery: string): boolean => pathWithQuery.startsWith('/api/');
-  const shouldFallbackToOrigin = (status: number): boolean => status === 404 || status === 405 || status === 501 || status === 502 || status === 503;
+  const shouldFallbackToOrigin = (status: number): boolean => (
+    status === 404 || status === 405 || status === 501 || status === 502 || status === 503
+  );
   const fetchWithRedirectFallback = async (
     redirectedInput: RequestInfo | URL,
     originalInput: RequestInfo | URL,
@@ -641,8 +740,12 @@ export function installWebApiRedirect(): void {
       const redirectedResponse = await nativeFetch(redirectedInput, originalInit);
       if (!shouldFallbackToOrigin(redirectedResponse.status)) return redirectedResponse;
       return nativeFetch(originalInput, originalInit);
-    } catch {
-      return nativeFetch(originalInput, originalInit);
+    } catch (error) {
+      try {
+        return await nativeFetch(originalInput, originalInit);
+      } catch {
+        throw error;
+      }
     }
   };
 

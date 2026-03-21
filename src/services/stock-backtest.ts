@@ -1,3 +1,4 @@
+import { getRpcBaseUrl } from '@/services/rpc-client';
 import {
   ApiError,
   MarketServiceClient,
@@ -5,7 +6,7 @@ import {
 } from '@/generated/client/worldmonitor/market/v1/service_client';
 import { PremiumStockUnavailableError } from './stock-analysis';
 
-const client = new MarketServiceClient('', {
+const client = new MarketServiceClient(getRpcBaseUrl(), {
   fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args),
 });
 
