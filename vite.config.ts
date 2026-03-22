@@ -685,22 +685,26 @@ function gpsjamDevPlugin(): Plugin {
   };
 }
 
-export default defineConfig({
-  define: {
-    __APP_VERSION__: JSON.stringify(pkg.version),
-  },
-  plugins: [
-    htmlVariantPlugin(),
-    polymarketPlugin(),
-    bootstrapApiPlugin(),
-    rssProxyPlugin(),
-    youtubeLivePlugin(),
-    gpsjamDevPlugin(),
-    sebufApiPlugin(),
-    brotliPrecompressPlugin(),
-    VitePWA({
-      registerType: 'autoUpdate',
-      injectRegister: false,
+function telegramFeedPlugin(): Plugin {
+  return {
+    name: 'telegram-feed-dev',
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (!req.url?.startsWith('/api/telegram-feed')) return next();
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.end('[]');
+      });
+    },
+  };
+}
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  // Inject environment variables from .env files into process.env.
+  // This ensures that API keys and other secrets in .env.local are
+  // available to the dev server plugins and server-side handlers.
+  Object.assign(process.env, env);
 
   const isE2E = process.env.VITE_E2E === '1';
   const isDesktopBuild = process.env.VITE_DESKTOP_RUNTIME === '1';
@@ -717,6 +721,7 @@ export default defineConfig({
       rssProxyPlugin(),
       youtubeLivePlugin(),
       gpsjamDevPlugin(),
+      telegramFeedPlugin(),
       sebufApiPlugin(),
       brotliPrecompressPlugin(),
       VitePWA({

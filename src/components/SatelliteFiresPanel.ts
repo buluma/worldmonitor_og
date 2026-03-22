@@ -10,7 +10,7 @@ export class SatelliteFiresPanel extends Panel {
   constructor() {
     super({
       id: 'satellite-fires',
-      title: t('panels.satelliteFires'),
+      title: t('panels.satelliteFires.title'),
       showCount: true,
       trackActivity: true,
       infoTooltip: t('components.satelliteFires.infoTooltip'),

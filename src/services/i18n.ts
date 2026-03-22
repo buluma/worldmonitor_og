@@ -20,7 +20,9 @@ const localeModules = import.meta.glob<TranslationDictionary>(
 const RTL_LANGUAGES = new Set(['ar']);
 
 function normalizeLanguage(lng: string): SupportedLanguage {
-  const base = (lng || 'en').split('-')[0]?.toLowerCase() || 'en';
+  if (!lng) return 'en';
+  const base = lng.split('-')[0]?.toLowerCase() || 'en';
+  if (base === 'en') return 'en';
   if (SUPPORTED_LANGUAGE_SET.has(base as SupportedLanguage)) {
     return base as SupportedLanguage;
   }
@@ -39,25 +41,37 @@ function applyDocumentDirection(lang: string): void {
 
 async function ensureLanguageLoaded(lng: string): Promise<SupportedLanguage> {
   const normalized = normalizeLanguage(lng);
-  if (loadedLanguages.has(normalized) && i18next.hasResourceBundle(normalized, 'translation')) {
+
+  // If we already have this specific language code loaded, return.
+  if (loadedLanguages.has(lng as any) && i18next.hasResourceBundle(lng, 'translation')) {
     return normalized;
   }
 
-  let translation: TranslationDictionary;
-  if (normalized === 'en') {
-    translation = enTranslation as TranslationDictionary;
-  } else {
+  // If we have the normalized version but not the explicit one requested,
+  // we can just re-register it to be safe, or rely on fallback.
+  // For 'en-*' locales, we definitely want them points to 'enTranslation'.
+  if (normalized === 'en' && !loadedLanguages.has('en' as any)) {
+    i18next.addResourceBundle('en', 'translation', enTranslation as TranslationDictionary, true, true);
+    loadedLanguages.add('en');
+  }
+
+  if (loadedLanguages.has(normalized) && normalized !== 'en') {
+    // Already in resource registry
+  } else if (normalized !== 'en') {
     const loader = localeModules[`../locales/${normalized}.json`];
-    if (!loader) {
-      console.warn(`No locale file for "${normalized}", falling back to English`);
-      translation = enTranslation as TranslationDictionary;
-    } else {
-      translation = await loader();
+    if (loader) {
+      const translation = await loader();
+      i18next.addResourceBundle(normalized, 'translation', translation, true, true);
+      loadedLanguages.add(normalized);
     }
   }
 
-  i18next.addResourceBundle(normalized, 'translation', translation, true, true);
-  loadedLanguages.add(normalized);
+  // Explicitly add to the requested 'en-*' if it's English
+  if (lng.startsWith('en') && lng !== 'en' && !i18next.hasResourceBundle(lng, 'translation')) {
+    i18next.addResourceBundle(lng, 'translation', enTranslation as TranslationDictionary, true, true);
+    loadedLanguages.add(lng as any);
+  }
+
   return normalized;
 }
 
