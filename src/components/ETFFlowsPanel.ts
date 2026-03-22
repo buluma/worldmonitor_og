@@ -67,14 +67,14 @@ export class ETFFlowsPanel extends Panel {
     }
 
     if (this.error || !this.data) {
-      this.showError(this.error || t('common.noDataShort'), () => void this.fetchData(), null);
+      this.showError(this.error || t('common.noDataShort'), () => void this.fetchData(), undefined);
       return;
     }
 
     const d = this.data;
     if (!d.etfs?.length) {
       const msg = d.rateLimited ? t('components.etfFlows.rateLimited') : t('components.etfFlows.unavailable');
-      this.showError(msg, () => void this.fetchData(), null);
+      this.showError(msg, () => void this.fetchData(), undefined);
       return;
     }
 

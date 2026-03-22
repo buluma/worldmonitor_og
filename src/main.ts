@@ -9,6 +9,7 @@ import { debugGetCells, getCellCount } from '@/services/geo-convergence';
 import { initMetaTags } from '@/services/meta-tags';
 import { installRuntimeFetchPatch, installWebApiRedirect, isDesktopRuntime } from '@/services/runtime';
 import { loadDesktopSecrets } from '@/services/runtime-config';
+import { applyFont } from '@/services/font-settings';
 import { applyStoredTheme } from '@/utils/theme-manager';
 import { App } from './App';
 import { installUtmInterceptor } from './utils/utm';
@@ -483,6 +484,15 @@ async function shouldRegisterServiceWorker(): Promise<boolean> {
   }
 }
 
+function installSwUpdateHandler(): void {
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloading) return;
+    reloading = true;
+    window.location.reload();
+  });
+}
+
 if (!('__TAURI_INTERNALS__' in window) && !('__TAURI__' in window) && 'serviceWorker' in navigator) {
   installSwUpdateHandler();
 
@@ -505,7 +515,6 @@ if (!('__TAURI_INTERNALS__' in window) && !('__TAURI__' in window) && 'serviceWo
           console.warn('[PWA] Service worker registration failed:', err);
         });
     });
-  }
 }
 
 // --- SW/Cache Nuke Template ---

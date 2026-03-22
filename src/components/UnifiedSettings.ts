@@ -94,6 +94,16 @@ export class UnifiedSettings {
         return;
       }
 
+      if (target.closest('.panels-select-all')) {
+        this.setVisiblePanelsEnabled(true);
+        return;
+      }
+
+      if (target.closest('.panels-select-none')) {
+        this.setVisiblePanelsEnabled(false);
+        return;
+      }
+
       const panelItem = target.closest<HTMLElement>('.panel-toggle-item');
       if (panelItem?.dataset.panel) {
         this.toggleDraftPanel(panelItem.dataset.panel);
@@ -228,6 +238,8 @@ export class UnifiedSettings {
           <div class="panel-toggle-grid" id="usPanelToggles"></div>
           <div class="panels-footer">
             <span class="panels-status" id="usPanelsStatus" aria-live="polite"></span>
+            <button class="panels-select-all">${t('common.selectAll')}</button>
+            <button class="panels-select-none">${t('common.selectNone')}</button>
             <button class="panels-save-layout">${t('modals.story.save')}</button>
             <button class="panels-reset-layout" title="${t('header.resetLayoutTooltip')}" aria-label="${t('header.resetLayoutTooltip')}">${t('header.resetLayout')}</button>
           </div>
@@ -383,6 +395,21 @@ export class UnifiedSettings {
     if (!panel) return;
     if (!panel.enabled && !isPanelEntitled(key, ALL_PANELS[key] ?? panel)) return;
     panel.enabled = !panel.enabled;
+    this.panelsJustSaved = false;
+    this.renderPanelsTab();
+  }
+
+  private setVisiblePanelsEnabled(enabled: boolean): void {
+    let changed = false;
+    for (const [key, panel] of this.getVisiblePanelEntries()) {
+      if (enabled && !panel.enabled && !isPanelEntitled(key, ALL_PANELS[key] ?? panel)) continue;
+      if (panel.enabled === enabled) continue;
+      panel.enabled = enabled;
+      changed = true;
+    }
+
+    if (!changed) return;
+
     this.panelsJustSaved = false;
     this.renderPanelsTab();
   }

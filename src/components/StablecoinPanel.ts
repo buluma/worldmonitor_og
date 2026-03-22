@@ -67,7 +67,7 @@ export class StablecoinPanel extends Panel {
     }
 
     if (this.error || !this.data) {
-      this.showError(this.error || t('common.noDataShort'), () => void this.fetchData(), null);
+      this.showError(this.error || t('common.noDataShort'), () => void this.fetchData(), undefined);
       return;
     }
 

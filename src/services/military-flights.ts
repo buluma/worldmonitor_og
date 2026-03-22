@@ -1,5 +1,5 @@
 import type { MilitaryFlight, MilitaryFlightCluster, MilitaryAircraftType, MilitaryOperator } from '@/types';
-import { createCircuitBreaker } from '@/utils';
+import { createCircuitBreaker, toUniqueSortedLowercase } from '@/utils';
 import type {
   ListMilitaryFlightsResponse as ApiListMilitaryFlightsResponse,
   MilitaryFlight as ApiMilitaryFlight,

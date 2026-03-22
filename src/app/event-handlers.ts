@@ -1,11 +1,7 @@
 import type { AppContext, AppModule } from '@/app/app-context';
 import type { AirlineIntelPanel } from '@/components/AirlineIntelPanel';
-import type { CustomWidgetPanel } from '@/components/CustomWidgetPanel';
-import { openWidgetChatModal } from '@/components/WidgetChatModal';
-import { deleteWidget, getWidget, saveWidget, isProUser } from '@/services/widget-store';
-import type { McpDataPanel } from '@/components/McpDataPanel';
-import { openMcpConnectModal } from '@/components/McpConnectModal';
-import { deleteMcpPanel, getMcpPanel, saveMcpPanel } from '@/services/mcp-store';
+import { deleteWidget, isProUser } from '@/services/widget-store';
+import { deleteMcpPanel } from '@/services/mcp-store';
 import type { PanelConfig, MapLayers } from '@/types';
 import type { MapView } from '@/components';
 import type { ClusteredEvent } from '@/types';
@@ -94,8 +90,6 @@ export class EventHandlerManager implements AppModule {
   private boundMapFullscreenEscHandler: ((e: KeyboardEvent) => void) | null = null;
   private boundMobileMenuKeyHandler: ((e: KeyboardEvent) => void) | null = null;
   private boundPanelCloseHandler: ((e: Event) => void) | null = null;
-  private boundWidgetModifyHandler: ((e: Event) => void) | null = null;
-  private boundUndoHandler: ((e: KeyboardEvent) => void) | null = null;
   private closedPanelStack: string[] = []; // max-items: 20
   private idleTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private snapshotIntervalId: ReturnType<typeof setInterval> | null = null;
@@ -119,28 +113,20 @@ export class EventHandlerManager implements AppModule {
     this.callbacks = callbacks;
   }
 
+  private persistDisabledSources(): void {
+    const knownSources = new Set(this.getAllSourceNames());
+    for (const name of Array.from(this.ctx.disabledSources)) {
+      if (!knownSources.has(name)) {
+        this.ctx.disabledSources.delete(name);
+      }
+    }
+    saveToStorage(STORAGE_KEYS.disabledFeeds, Array.from(this.ctx.disabledSources));
+  }
+
   init(): void {
     this.setupEventListeners();
     this.setupIdleDetection();
     this.setupTvMode();
-  }
-
-  private performUndo(): void {
-    const panelId = this.closedPanelStack.pop();
-    if (!panelId) return;
-    const config = this.ctx.panelSettings[panelId];
-    if (!config) return;
-    config.enabled = true;
-    trackPanelToggled(panelId, true);
-    saveToStorage(STORAGE_KEYS.panels, this.ctx.panelSettings);
-    this.applyPanelSettings();
-    this.ctx.unifiedSettings?.refreshPanelToggles();
-
-    // Ensure restored panel fetches fresh data (otherwise it may show no content)
-    const panel = this.ctx.panels[panelId];
-    if (panel && 'fetchData' in panel) {
-      (panel as any).fetchData();
-    }
   }
 
   private setupTvMode(): void {
@@ -270,14 +256,6 @@ export class EventHandlerManager implements AppModule {
     if (this.boundPanelCloseHandler) {
       this.ctx.container.removeEventListener('wm:panel-close', this.boundPanelCloseHandler);
       this.boundPanelCloseHandler = null;
-    }
-    if (this.boundWidgetModifyHandler) {
-      this.ctx.container.removeEventListener('wm:widget-modify', this.boundWidgetModifyHandler);
-      this.boundWidgetModifyHandler = null;
-    }
-    if (this.boundUndoHandler) {
-      document.removeEventListener('keydown', this.boundUndoHandler);
-      this.boundUndoHandler = null;
     }
     this.ctx.tvMode?.destroy();
     this.ctx.tvMode = null;
@@ -921,14 +899,14 @@ export class EventHandlerManager implements AppModule {
         } else {
           this.ctx.disabledSources.add(name);
         }
-        saveToStorage(STORAGE_KEYS.disabledFeeds, Array.from(this.ctx.disabledSources));
+        this.persistDisabledSources();
       },
       setSourcesEnabled: (names: string[], enabled: boolean) => {
         for (const name of names) {
           if (enabled) this.ctx.disabledSources.delete(name);
           else this.ctx.disabledSources.add(name);
         }
-        saveToStorage(STORAGE_KEYS.disabledFeeds, Array.from(this.ctx.disabledSources));
+        this.persistDisabledSources();
       },
       getAllSourceNames: () => this.getAllSourceNames(),
       getLocalizedPanelName: (key: string, fallback: string) => this.getLocalizedPanelName(key, fallback),

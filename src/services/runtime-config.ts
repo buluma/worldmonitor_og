@@ -428,6 +428,13 @@ export function getSecretState(key: RuntimeSecretKey): { present: boolean; valid
   return { present: true, valid: validateSecret(key, state.value).valid, source: state.source };
 }
 
+// Licensing is currently disabled for World Monitor.
+// Keep this helper central so feature paths can remain explicit without
+// overloading secret-state semantics for the settings UI.
+export function hasWorldMonitorAccess(): boolean {
+  return true;
+}
+
 export function isFeatureAvailable(featureId: RuntimeFeatureId): boolean {
   if (!isFeatureEnabled(featureId)) return false;
 

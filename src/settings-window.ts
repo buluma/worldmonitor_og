@@ -71,6 +71,33 @@ export function initSettingsWindow(): void {
         });
       });
     }
+
+    const selectAllBtn = document.getElementById('settingsWindowSelectAll');
+    selectAllBtn?.addEventListener('click', () => {
+      let changed = false;
+      for (const [key, panel] of panelEntries) {
+        if (panel.enabled) continue;
+        if (!isPanelEntitled(key, ALL_PANELS[key] ?? panel)) continue;
+        panel.enabled = true;
+        changed = true;
+      }
+      if (!changed) return;
+      saveToStorage(STORAGE_KEYS.panels, panelSettings);
+      render();
+    });
+
+    const selectNoneBtn = document.getElementById('settingsWindowSelectNone');
+    selectNoneBtn?.addEventListener('click', () => {
+      let changed = false;
+      for (const [, panel] of panelEntries) {
+        if (!panel.enabled) continue;
+        panel.enabled = false;
+        changed = true;
+      }
+      if (!changed) return;
+      saveToStorage(STORAGE_KEYS.panels, panelSettings);
+      render();
+    });
   }
 
   appEl.innerHTML = `
@@ -83,6 +110,11 @@ export function initSettingsWindow(): void {
         <button type="button" class="modal-close" id="settingsWindowClose">×</button>
       </div>
       <div class="panel-toggle-grid" id="panelToggles"></div>
+      <div class="panels-footer">
+        <span class="panels-status"></span>
+        <button type="button" class="panels-select-all" id="settingsWindowSelectAll">${escapeHtml(t('common.selectAll'))}</button>
+        <button type="button" class="panels-select-none" id="settingsWindowSelectNone">${escapeHtml(t('common.selectNone'))}</button>
+      </div>
     </div>
   `;
 

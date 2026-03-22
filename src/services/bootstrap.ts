@@ -1,5 +1,5 @@
 import { getPersistentCache, setPersistentCache } from '@/services/persistent-cache';
-import { isDesktopRuntime, toApiUrl } from '@/services/runtime';
+import { toApiUrl } from '@/services/runtime';
 
 const hydrationCache = new Map<string, unknown>();
 const BOOTSTRAP_CACHE_PREFIX = 'bootstrap:tier:';

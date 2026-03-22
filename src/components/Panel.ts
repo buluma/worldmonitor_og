@@ -4,6 +4,7 @@ import { t } from '../services/i18n';
 import { h, replaceChildren, safeHtml } from '../utils/dom-utils';
 import { trackPanelResized } from '@/services/analytics';
 import { getAiFlowSettings } from '@/services/ai-flow-settings';
+import { hasWorldMonitorAccess } from '@/services/runtime-config';
 
 export interface PanelOptions {
   id: string;
@@ -247,6 +248,11 @@ export class Panel {
       this.newBadgeEl.className = 'panel-new-badge';
       this.newBadgeEl.style.display = 'none';
       headerLeft.appendChild(this.newBadgeEl);
+    }
+
+    if (isDesktopRuntime() && options.premium === 'enhanced' && !hasWorldMonitorAccess()) {
+      const proBadge = h('span', { className: 'panel-pro-badge' }, t('premium.pro'));
+      headerLeft.appendChild(proBadge);
     }
 
     this.header.appendChild(headerLeft);
@@ -703,7 +709,7 @@ export class Panel {
     );
   }
 
-  public showError(message?: string, onRetry?: () => void, autoRetrySeconds?: number | null): void {
+  public showError(message?: string, onRetry?: () => void, autoRetrySeconds?: number): void {
     if (this._locked) return;
     this.clearRetryCountdown();
     this.setErrorState(true);
@@ -719,32 +725,22 @@ export class Panel {
     const children: (HTMLElement | string)[] = [radarEl, msgEl];
 
     if (this.retryCallback) {
-      if (autoRetrySeconds === null) {
-        const retryBtn = h('button', {
-          type: 'button',
-          className: 'panel-retry-btn',
-          'data-panel-retry': 'true',
-        }, t('common.retry'));
-        retryBtn.addEventListener('click', () => this.retryCallback?.());
-        children.push(retryBtn);
-      } else {
-        const backoffSeconds = autoRetrySeconds ?? Math.min(15 * Math.pow(2, this.retryAttempt), 180);
-        this.retryAttempt++;
-        let remaining = Math.round(backoffSeconds);
-        const countdownEl = h('div', { className: 'panel-error-countdown' },
-          `${t('common.retrying')} (${remaining}s)`,
-        );
-        children.push(countdownEl);
-        this.retryCountdownTimer = setInterval(() => {
-          remaining--;
-          if (remaining <= 0) {
-            this.clearRetryCountdown();
-            this.retryCallback?.();
-            return;
-          }
-          countdownEl.textContent = `${t('common.retrying')} (${remaining}s)`;
-        }, 1000);
-      }
+      const backoffSeconds = autoRetrySeconds ?? Math.min(15 * 2 ** this.retryAttempt, 180);
+      this.retryAttempt++;
+      let remaining = Math.round(backoffSeconds);
+      const countdownEl = h('div', { className: 'panel-error-countdown' },
+        `${t('common.retrying')} (${remaining}s)`,
+      );
+      children.push(countdownEl);
+      this.retryCountdownTimer = setInterval(() => {
+        remaining--;
+        if (remaining <= 0) {
+          this.clearRetryCountdown();
+          this.retryCallback?.();
+          return;
+        }
+        countdownEl.textContent = `${t('common.retrying')} (${remaining}s)`;
+      }, 1000);
     }
     replaceChildren(this.content, h('div', { className: 'panel-error-state' }, ...children));
   }

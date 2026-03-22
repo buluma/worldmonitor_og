@@ -3,7 +3,7 @@ import { SITE_VARIANT } from './variant';
 // boundary-ignore: isDesktopRuntime is a pure env probe with no service dependencies
 import { isDesktopRuntime } from '@/services/runtime';
 // boundary-ignore: getSecretState is a pure env/keychain probe with no service dependencies
-import { getSecretState } from '@/services/runtime-config';
+import { hasWorldMonitorAccess } from '@/services/runtime-config';
 
 const _desktop = isDesktopRuntime();
 // ============================================
@@ -894,7 +894,7 @@ export function isPanelEntitled(key: string, config: PanelConfig): boolean {
   if (!config.premium) return true;
   const apiKeyPanels = ['stock-analysis', 'stock-backtest', 'daily-market-brief'];
   if (apiKeyPanels.includes(key)) {
-    return getSecretState('WORLDMONITOR_API_KEY').present;
+    return hasWorldMonitorAccess();
   }
   if (config.premium === 'locked') {
     return isDesktopRuntime();

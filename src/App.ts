@@ -32,12 +32,13 @@ import type { GroceryBasketPanel } from '@/components/GroceryBasketPanel';
 import type { BigMacPanel } from '@/components/BigMacPanel';
 import type { ConsumerPricesPanel } from '@/components/ConsumerPricesPanel';
 import { isDesktopRuntime, waitForSidecarReady } from '@/services/runtime';
+import { hasWorldMonitorAccess } from '@/services/runtime-config';
 import { BETA_MODE } from '@/config/beta';
 import { trackEvent, trackDeeplinkOpened } from '@/services/analytics';
 import { preloadCountryGeometry, getCountryNameByCode } from '@/services/country-geometry';
 import { initI18n, t } from '@/services/i18n';
 
-import { computeDefaultDisabledSources, getLocaleBoostedSources, getTotalFeedCount } from '@/config/feeds';
+import { FEEDS, INTEL_SOURCES, computeDefaultDisabledSources, getLocaleBoostedSources, getTotalFeedCount } from '@/config/feeds';
 import { fetchBootstrapData, getBootstrapHydrationState, markBootstrapAsLive, type BootstrapHydrationState } from '@/services/bootstrap';
 import { describeFreshness } from '@/services/persistent-cache';
 import { DesktopUpdater } from '@/app/desktop-updater';
@@ -117,7 +118,7 @@ export class App {
 
   private getCachedBootstrapUpdatedAt(): number | null {
     const cachedTierTimestamps = Object.values(this.bootstrapHydrationState.tiers)
-      .filter((tier) => tier.source === 'cached' || tier.source === 'mixed')
+      .filter((tier) => tier.source === 'cached')
       .map((tier) => tier.updatedAt)
       .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
 
@@ -129,16 +130,26 @@ export class App {
     const statusIndicator = this.state.container.querySelector('.status-indicator');
     const statusLabel = statusIndicator?.querySelector('span:last-child');
     const online = typeof navigator === 'undefined' ? true : navigator.onLine !== false;
-    const usingCachedBootstrap = this.bootstrapHydrationState.source === 'cached' || this.bootstrapHydrationState.source === 'mixed';
+    // Only treat a complete cache fallback (no live data at all) as "cached" for UI purposes.
+    // 'mixed' means live data was partially fetched — showing "Live data unavailable" would be misleading.
+    const usingCachedBootstrap = this.bootstrapHydrationState.source === 'cached';
     const cachedUpdatedAt = this.getCachedBootstrapUpdatedAt();
 
     let statusMode: 'live' | 'cached' | 'unavailable' = 'live';
     let bannerMessage: string | null = null;
 
     if (!online) {
-      if (usingCachedBootstrap) {
+      // Offline: show banner regardless of mixed/cached (any cached data is better than nothing)
+      const hasAnyCached = this.bootstrapHydrationState.source === 'cached' || this.bootstrapHydrationState.source === 'mixed';
+      if (hasAnyCached) {
         statusMode = 'cached';
-        const freshness = cachedUpdatedAt ? describeFreshness(cachedUpdatedAt) : t('common.cached').toLowerCase();
+        const offlineCachedAt = this.bootstrapHydrationState.tiers
+          ? Math.min(...Object.values(this.bootstrapHydrationState.tiers)
+              .filter((tier) => tier.source === 'cached' || tier.source === 'mixed')
+              .map((tier) => tier.updatedAt)
+              .filter((v): v is number => typeof v === 'number' && Number.isFinite(v)))
+          : NaN;
+        const freshness = Number.isFinite(offlineCachedAt) ? describeFreshness(offlineCachedAt) : t('common.cached').toLowerCase();
         bannerMessage = t('connectivity.offlineCached', { freshness });
       } else {
         statusMode = 'unavailable';
@@ -267,7 +278,7 @@ export class App {
     if (shouldPrime('supply-chain')) {
       primeTask('supplyChain', () => this.dataLoader.loadSupplyChain());
     }
-    if (getSecretState('WORLDMONITOR_API_KEY').present) {
+    if (hasWorldMonitorAccess()) {
       if (shouldPrime('stock-analysis')) {
         primeTask('stockAnalysis', () => this.dataLoader.loadStockAnalysis());
       }
@@ -301,20 +312,29 @@ export class App {
     let mapLayers: MapLayers;
     let panelSettings: Record<string, PanelConfig>;
 
+    // Panels that must survive variant switches: desktop config, user-created widgets, MCP panels.
+    const isDynamicPanel = (k: string) => k === 'runtime-config' || k.startsWith('cw-') || k.startsWith('mcp-');
+
     // Check if variant changed - reset all settings to variant defaults
     const storedVariant = localStorage.getItem('worldmonitor-variant');
     const currentVariant = SITE_VARIANT;
     console.log(`[App] Variant check: stored="${storedVariant}", current="${currentVariant}"`);
     if (storedVariant !== currentVariant) {
-      // Variant changed — seed new variant's panels but preserve existing user choices
-      console.log('[App] Variant changed - seeding new defaults, preserving user choices');
+      // Variant changed — seed new variant's panels, disable panels not in the new variant
+      console.log('[App] Variant changed - seeding new defaults, disabling cross-variant panels');
       localStorage.setItem('worldmonitor-variant', currentVariant);
       // Reset map layers for the new variant (map layers are not user-personalized the same way)
       localStorage.removeItem(STORAGE_KEYS.mapLayers);
       mapLayers = sanitizeLayersForVariant({ ...defaultLayers }, currentVariant as MapVariant);
-      // Load existing panel prefs (if any) and seed new variant's panels
+      // Load existing panel prefs (if any), disable panels not belonging to the new variant
       panelSettings = loadFromStorage<Record<string, PanelConfig>>(STORAGE_KEYS.panels, {});
-      for (const key of (VARIANT_DEFAULTS[currentVariant] ?? [])) {
+      const newVariantKeys = new Set(VARIANT_DEFAULTS[currentVariant] ?? []);
+      for (const key of Object.keys(panelSettings)) {
+        if (!newVariantKeys.has(key) && !isDynamicPanel(key) && panelSettings[key]) {
+          panelSettings[key] = { ...panelSettings[key]!, enabled: false };
+        }
+      }
+      for (const key of newVariantKeys) {
         if (!(key in panelSettings)) {
           panelSettings[key] = { ...getEffectivePanelConfig(key, currentVariant), enabled: true };
         }
@@ -371,6 +391,23 @@ export class App {
         saveToStorage(STORAGE_KEYS.panels, panelSettings);
         localStorage.setItem(UNIFIED_MIGRATION_KEY, 'done');
       }
+
+      // One-time migration: fix happy variant sessions that got cross-variant panels enabled
+      // (regression from #1911 unified panel registry which failed to disable non-variant panels on variant switch)
+      const HAPPY_PANEL_FIX_KEY = 'worldmonitor-happy-panel-fix-v1';
+      if (SITE_VARIANT === 'happy' && !localStorage.getItem(HAPPY_PANEL_FIX_KEY)) {
+        const happyKeys = new Set(VARIANT_DEFAULTS['happy'] ?? []);
+        let fixed = false;
+        for (const key of Object.keys(panelSettings)) {
+          if (!happyKeys.has(key) && !isDynamicPanel(key) && panelSettings[key]?.enabled) {
+            panelSettings[key] = { ...panelSettings[key]!, enabled: false };
+            fixed = true;
+          }
+        }
+        if (fixed) saveToStorage(STORAGE_KEYS.panels, panelSettings);
+        localStorage.setItem(HAPPY_PANEL_FIX_KEY, 'done');
+      }
+
       console.log('[App] Loaded panel settings from storage:', Object.entries(panelSettings).filter(([_, v]) => !v.enabled).map(([k]) => k));
 
       // One-time migration: reorder panels for existing users (v1.9 panel layout)
@@ -461,11 +498,12 @@ export class App {
 
     // Desktop key management panel must always remain accessible in Tauri.
     if (isDesktopApp) {
-      if (!panelSettings['runtime-config']) {
+      if (!panelSettings['runtime-config'] || !panelSettings['runtime-config'].enabled) {
         panelSettings['runtime-config'] = {
-          name: 'Desktop Configuration',
+          ...panelSettings['runtime-config'],
+          name: panelSettings['runtime-config']?.name ?? 'Desktop Configuration',
           enabled: true,
-          priority: 2,
+          priority: panelSettings['runtime-config']?.priority ?? 2,
         };
         saveToStorage(STORAGE_KEYS.panels, panelSettings);
       }
@@ -504,7 +542,16 @@ export class App {
       }
     }
 
-    const disabledSources = new Set(loadFromStorage<string[]>(STORAGE_KEYS.disabledFeeds, []));
+    const knownSourceNames = new Set<string>([
+      ...Object.values(FEEDS).flatMap(feeds => (feeds ?? []).map(feed => feed.name)),
+      ...INTEL_SOURCES.map(feed => feed.name),
+    ]);
+    const storedDisabledSources = loadFromStorage<string[]>(STORAGE_KEYS.disabledFeeds, []);
+    const sanitizedDisabledSources = storedDisabledSources.filter(name => knownSourceNames.has(name));
+    if (sanitizedDisabledSources.length !== storedDisabledSources.length) {
+      saveToStorage(STORAGE_KEYS.disabledFeeds, sanitizedDisabledSources);
+    }
+    const disabledSources = new Set(sanitizedDisabledSources);
 
     // Build shared state object
     this.state = {
@@ -932,20 +979,20 @@ export class App {
       this.refreshScheduler.scheduleRefresh(
         'stock-analysis',
         () => this.dataLoader.loadStockAnalysis(),
-        15 * 60 * 1000,
-        () => true,
+        REFRESH_INTERVALS.stockAnalysis,
+        () => hasWorldMonitorAccess() && this.isPanelNearViewport('stock-analysis'),
       );
       this.refreshScheduler.scheduleRefresh(
         'daily-market-brief',
         () => this.dataLoader.loadDailyMarketBrief(),
-        60 * 60 * 1000,
-        () => true,
+        REFRESH_INTERVALS.dailyMarketBrief,
+        () => hasWorldMonitorAccess() && this.isPanelNearViewport('daily-market-brief'),
       );
       this.refreshScheduler.scheduleRefresh(
         'stock-backtest',
         () => this.dataLoader.loadStockBacktest(),
-        4 * 60 * 60 * 1000,
-        () => true,
+        REFRESH_INTERVALS.stockBacktest,
+        () => hasWorldMonitorAccess() && this.isPanelNearViewport('stock-backtest'),
       );
     }
 
@@ -953,26 +1000,26 @@ export class App {
     this.refreshScheduler.scheduleRefresh(
       'service-status',
       () => (this.state.panels['service-status'] as ServiceStatusPanel).fetchStatus(),
-      10 * 60_000,
-      () => !!this.state.panels['service-status']
+      REFRESH_INTERVALS.serviceStatus,
+      () => this.isPanelNearViewport('service-status')
     );
     this.refreshScheduler.scheduleRefresh(
       'stablecoins',
-      () => (this.state.panels['stablecoins'] as StablecoinPanel).fetchData(),
-      10 * 60_000,
-      () => !!this.state.panels['stablecoins']
+      () => (this.state.panels.stablecoins as StablecoinPanel).fetchData(),
+      REFRESH_INTERVALS.stablecoins,
+      () => this.isPanelNearViewport('stablecoins')
     );
     this.refreshScheduler.scheduleRefresh(
       'etf-flows',
       () => (this.state.panels['etf-flows'] as ETFFlowsPanel).fetchData(),
-      10 * 60_000,
-      () => !!this.state.panels['etf-flows']
+      REFRESH_INTERVALS.etfFlows,
+      () => this.isPanelNearViewport('etf-flows')
     );
     this.refreshScheduler.scheduleRefresh(
       'macro-signals',
       () => (this.state.panels['macro-signals'] as MacroSignalsPanel).fetchData(),
-      15 * 60_000,
-      () => !!this.state.panels['macro-signals']
+      REFRESH_INTERVALS.macroSignals,
+      () => this.isPanelNearViewport('macro-signals')
     );
     this.refreshScheduler.scheduleRefresh(
       'strategic-posture',

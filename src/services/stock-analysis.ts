@@ -5,7 +5,7 @@ import {
   type AnalyzeStockResponse,
 } from '@/generated/client/worldmonitor/market/v1/service_client';
 import { getMarketWatchlistEntries } from '@/services/market-watchlist';
-import { runThrottledTargetRequests } from '@/services/throttled-target-requests';
+import { getRpcBaseUrl } from '@/services/rpc-client';
 
 const client = new MarketServiceClient(getRpcBaseUrl(), {
   fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args),

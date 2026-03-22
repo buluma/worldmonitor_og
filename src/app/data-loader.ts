@@ -67,14 +67,13 @@ import {
   fetchRadiationWatch,
 } from '@/services';
 import { getMarketWatchlistEntries } from '@/services/market-watchlist';
-import { PremiumStockUnavailableError, fetchStockAnalysesForTargets, getStockAnalysisTargets } from '@/services/stock-analysis';
+import { fetchStockAnalysesForTargets, getStockAnalysisTargets } from '@/services/stock-analysis';
 import {
   fetchStockBacktestsForTargets,
   fetchStoredStockBacktests,
   getMissingOrStaleStoredStockBacktests,
   hasFreshStoredStockBacktests,
 } from '@/services/stock-backtest';
-import { ApiError } from '@/generated/client/worldmonitor/market/v1/service_client';
 import {
   fetchStockAnalysisHistory,
   getMissingOrStaleStockAnalysisSymbols,
@@ -105,8 +104,8 @@ import { fetchTelegramFeed } from '@/services/telegram-intel';
 import { fetchOrefAlerts, startOrefPolling, stopOrefPolling, onOrefAlertsUpdate } from '@/services/oref-alerts';
 import { enrichEventsWithExposure } from '@/services/population-exposure';
 import { debounce, getCircuitBreakerCooldownInfo } from '@/utils';
-import { isFeatureAvailable, isFeatureEnabled } from '@/services/runtime-config';
-import { isDesktopRuntime } from '@/services/runtime';
+import { hasWorldMonitorAccess, isFeatureAvailable, isFeatureEnabled } from '@/services/runtime-config';
+import { isDesktopRuntime, toApiUrl } from '@/services/runtime';
 import { getAiFlowSettings } from '@/services/ai-flow-settings';
 import { t, getCurrentLanguage } from '@/services/i18n';
 import { getHydratedData } from '@/services/bootstrap';
@@ -225,7 +224,7 @@ export class DataLoaderManager implements AppModule {
   private cachedSatRecs: SatRecEntry[] | null = null;
 
   private digestBreaker = { state: 'closed' as 'closed' | 'open' | 'half-open', failures: 0, cooldownUntil: 0 };
-  private readonly digestRequestTimeoutMs = 15000;
+  private readonly digestRequestTimeoutMs = 8000;
   private readonly digestBreakerCooldownMs = 5 * 60 * 1000;
   private readonly persistedDigestMaxAgeMs = 6 * 60 * 60 * 1000;
   private readonly perFeedFallbackCategoryFeedLimit = 3;
@@ -241,7 +240,7 @@ export class DataLoaderManager implements AppModule {
   init(): void {
     this.boundMarketWatchlistHandler = () => {
       void this.loadMarkets().then(async () => {
-        if (SITE_VARIANT === 'finance') {
+        if (hasWorldMonitorAccess()) {
           await this.loadStockAnalysis();
           await this.loadStockBacktest();
           await this.loadDailyMarketBrief(true);
@@ -371,11 +370,13 @@ export class DataLoaderManager implements AppModule {
 
     // Happy variant only loads news data -- skip all geopolitical/financial/military data
     if (SITE_VARIANT !== 'happy') {
-      tasks.push({ name: 'markets', task: runGuarded('markets', () => this.loadMarkets()) });
-      if (SITE_VARIANT === 'finance') {
+      if (shouldLoadAny(['markets', 'heatmap', 'commodities', 'crypto', 'energy-complex', 'crypto-heatmap', 'defi-tokens', 'ai-tokens', 'other-tokens'])) {
+        tasks.push({ name: 'markets', task: runGuarded('markets', () => this.loadMarkets()) });
+      }
+      if (hasWorldMonitorAccess() && shouldLoad('stock-analysis')) {
         tasks.push({ name: 'stockAnalysis', task: runGuarded('stockAnalysis', () => this.loadStockAnalysis()) });
       }
-      if (getSecretState('WORLDMONITOR_API_KEY').present && shouldLoad('stock-backtest')) {
+      if (hasWorldMonitorAccess() && shouldLoad('stock-backtest')) {
         tasks.push({ name: 'stockBacktest', task: runGuarded('stockBacktest', () => this.loadStockBacktest()) });
       }
       if (shouldLoad('polymarket')) {
@@ -517,7 +518,7 @@ export class DataLoaderManager implements AppModule {
 
     this.updateSearchIndex();
 
-    if (SITE_VARIANT === 'finance') {
+    if (hasWorldMonitorAccess()) {
       await this.loadDailyMarketBrief();
     }
 
@@ -1105,10 +1106,6 @@ export class DataLoaderManager implements AppModule {
 
     try {
       const targets = getStockAnalysisTargets();
-      if (targets.length === 0) {
-        panel.showStarterEmptyState('Stock analysis needs at least one eligible equity symbol in the watchlist.');
-        return;
-      }
       const targetSymbols = targets.map((target) => target.symbol);
       const storedHistory = await fetchStockAnalysisHistory(targets.length);
       const cachedSnapshots = getLatestStockAnalysisSnapshots(storedHistory, targets.length);
@@ -1125,33 +1122,21 @@ export class DataLoaderManager implements AppModule {
       const results = await fetchStockAnalysesForTargets(staleTargets);
       if (results.length === 0) {
         if (cachedSnapshots.length === 0) {
-          panel.showStarterEmptyState('No stock analyses are available for the current watchlist yet.');
+          panel.showRetrying('Stock analysis is waiting for eligible watchlist symbols.');
         }
         return;
       }
       const nextHistory = mergeStockAnalysisHistory(storedHistory, results);
       panel.renderAnalyses(results, nextHistory, 'live');
     } catch (error) {
+      console.error('[StockAnalysis] failed:', error);
       const cachedHistory = await fetchStockAnalysisHistory().catch(() => ({}));
       const cachedSnapshots = getLatestStockAnalysisSnapshots(cachedHistory);
       if (cachedSnapshots.length > 0) {
         panel.renderAnalyses(cachedSnapshots, cachedHistory, 'cached');
         return;
       }
-      if (error instanceof ApiError && error.statusCode === 401) {
-        panel.showError('Stock analysis is temporarily unavailable.');
-        return;
-      }
-      if (error instanceof PremiumStockUnavailableError) {
-        if (error.kind === 'config') {
-          panel.showConfigError(error.message);
-          return;
-        }
-        panel.showError(error.message);
-        return;
-      }
-      console.error('[StockAnalysis] failed:', error);
-      panel.showError('Stock analysis is temporarily unavailable.');
+      panel.showError('Premium stock analysis is temporarily unavailable.');
     }
   }
 
@@ -1161,10 +1146,6 @@ export class DataLoaderManager implements AppModule {
 
     try {
       const targets = getStockAnalysisTargets();
-      if (targets.length === 0) {
-        panel.showStarterEmptyState('Backtesting needs at least one eligible equity symbol in the watchlist.');
-        return;
-      }
       const targetSymbols = targets.map((target) => target.symbol);
       const stored = await fetchStoredStockBacktests(targets.length);
       if (stored.length > 0) {
@@ -1179,31 +1160,19 @@ export class DataLoaderManager implements AppModule {
       const results = await fetchStockBacktestsForTargets(staleTargets);
       if (results.length === 0) {
         if (stored.length === 0) {
-          panel.showStarterEmptyState('No premium backtests are available for the current watchlist yet.');
+          panel.showRetrying('Backtesting is waiting for eligible watchlist symbols.');
         }
         return;
       }
       panel.renderBacktests(results);
     } catch (error) {
+      console.error('[StockBacktest] failed:', error);
       const stored = await fetchStoredStockBacktests().catch(() => []);
       if (stored.length > 0) {
         panel.renderBacktests(stored, 'cached');
         return;
       }
-      if (error instanceof ApiError && error.statusCode === 401) {
-        panel.showError('Stock backtesting is temporarily unavailable.');
-        return;
-      }
-      if (error instanceof PremiumStockUnavailableError) {
-        if (error.kind === 'config') {
-          panel.showConfigError(error.message);
-          return;
-        }
-        panel.showError(error.message);
-        return;
-      }
-      console.error('[StockBacktest] failed:', error);
-      panel.showError('Stock backtesting is temporarily unavailable.');
+      panel.showError('Premium stock backtesting is temporarily unavailable.');
     }
   }
 
@@ -1393,7 +1362,7 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadDailyMarketBrief(force = false): Promise<void> {
-    if (SITE_VARIANT !== 'finance') return;
+    if (!hasWorldMonitorAccess()) return;
     if (this.ctx.isDestroyed || this.ctx.inFlight.has('dailyMarketBrief')) return;
 
     this.ctx.inFlight.add('dailyMarketBrief');
@@ -1596,7 +1565,7 @@ export class DataLoaderManager implements AppModule {
 
   async loadIntelligenceSignals(): Promise<void> {
     resetHotspotActivity();
-    const _desktopLocked = isDesktopRuntime() && !getSecretState('WORLDMONITOR_API_KEY').present;
+    const _desktopLocked = isDesktopRuntime() && !hasWorldMonitorAccess();
     const tasks: Promise<void>[] = [];
 
     tasks.push((async () => {
@@ -1751,10 +1720,8 @@ export class DataLoaderManager implements AppModule {
         const protestEvents = await protestsTask;
         const result = await fetchUcdpEvents(hydratedUcdp);
         if (!result.success) {
-          (this.ctx.panels['ucdp-events'] as UcdpEventsPanel | undefined)?.setEvents([]);
-          if (this.ctx.mapLayers.ucdpEvents) {
-            this.ctx.map?.setUcdpEvents([]);
-          }
+          // listUcdpEvents is a pure Redis-read (gold standard). Retrying returns
+          // the same empty result until the Railway seed refreshes the key.
           dataFreshness.recordError('ucdp_events', 'UCDP events unavailable (retaining prior event state)');
           return;
         }
@@ -2520,11 +2487,8 @@ export class DataLoaderManager implements AppModule {
     try {
       const fireResult = await fetchAllFires(1);
       if (fireResult.skipped) {
-        ingestSatelliteFiresForCII([]);
-        this.refreshCiiAndBrief();
-        this.ctx.map?.setFires([]);
-        (this.ctx.panels['satellite-fires'] as SatelliteFiresPanel | undefined)?.update([], 0);
-        this.ctx.statusPanel?.updateApi('FIRMS', { status: 'warning' });
+        this.ctx.panels['satellite-fires']?.showConfigError(t('panels.satelliteFires.noData'));
+        this.ctx.statusPanel?.updateApi('FIRMS', { status: 'error' });
         return;
       }
       const { regions, totalCount } = fireResult;
@@ -2811,7 +2775,7 @@ export class DataLoaderManager implements AppModule {
   }
 
   async loadTelegramIntel(): Promise<void> {
-    if (isDesktopRuntime() && !getSecretState('WORLDMONITOR_API_KEY').present) return;
+    if (isDesktopRuntime() && !hasWorldMonitorAccess()) return;
     try {
       const result = await fetchTelegramFeed();
       this.callPanel('telegram-intel', 'setData', result);

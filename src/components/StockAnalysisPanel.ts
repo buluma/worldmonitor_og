@@ -3,6 +3,7 @@ import type { StockAnalysisResult } from '@/services/stock-analysis';
 import { escapeHtml, sanitizeUrl } from '@/utils/sanitize';
 import type { StockAnalysisHistory } from '@/services/stock-analysis-history';
 import { DEFAULT_MARKET_WATCHLIST, setMarketWatchlistEntries } from '@/services/market-watchlist';
+import { sparkline } from '@/utils/sparkline';
 
 function formatChange(change: number): string {
   const rounded = Number.isFinite(change) ? change.toFixed(2) : '0.00';

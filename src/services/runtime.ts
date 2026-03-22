@@ -1,6 +1,16 @@
 import { SITE_VARIANT } from '@/config/variant';
 
-const WS_API_URL = import.meta.env.VITE_WS_API_URL || '';
+const ENV = (() => {
+  try {
+    return import.meta.env ?? {};
+  } catch {
+    return {} as Record<string, string | undefined>;
+  }
+})();
+
+const WS_API_URL = ENV.VITE_WS_API_URL || '';
+const DEFAULT_WEB_API_URL = 'https://api.worldmonitor.app';
+
 const DEFAULT_REMOTE_HOSTS: Record<string, string> = {
   tech: WS_API_URL,
   full: WS_API_URL,
@@ -370,10 +380,8 @@ export function startSmartPollLoop(
 
   const computeDelay = (baseMs: number): number => {
     const jitterRange = baseMs * jitterFraction;
-    const minDelay = Math.max(minIntervalMs, Math.round(baseMs - jitterRange));
-    const maxDelay = Math.max(minDelay, Math.round(baseMs + jitterRange));
     const jittered = baseMs + ((Math.random() * 2 - 1) * jitterRange);
-    return Math.min(maxDelay, Math.max(minDelay, Math.round(jittered)));
+    return Math.max(minIntervalMs, Math.round(jittered));
   };
 
   const scheduleNext = () => {
@@ -409,19 +417,13 @@ export function startSmartPollLoop(
     activeController = controller;
 
     try {
-      const result = poll({
+      const result = await poll({
         signal: controller?.signal,
         reason,
         isHidden: hidden,
       });
-      const maybeThen = result && (typeof result === 'object' || typeof result === 'function')
-        ? Reflect.get(result, 'then')
-        : undefined;
-      const settledResult = typeof maybeThen === 'function'
-        ? await Promise.resolve(result)
-        : result;
 
-      if (settledResult === false) {
+      if (result === false) {
         backoffMultiplier = Math.min(backoffMultiplier * 2, maxBackoffMultiplier);
       } else {
         backoffMultiplier = 1;
@@ -541,6 +543,10 @@ function isLocalOnlyApiTarget(target: string): boolean {
   return target.startsWith('/api/local-');
 }
 
+function isKeyFreeApiTarget(target: string): boolean {
+  return target.startsWith('/api/register-interest') || target.startsWith('/api/version');
+}
+
 async function fetchLocalWithStartupRetry(
   nativeFetch: typeof window.fetch,
   localUrl: string,
@@ -641,7 +647,19 @@ export function installRuntimeFetchPatch(): void {
 
     const localUrl = `${getApiBaseUrl()}${target}`;
     if (debug) console.log(`[fetch] intercept → ${target}`);
-    const allowCloudFallback = !isLocalOnlyApiTarget(target);
+    let allowCloudFallback = !isLocalOnlyApiTarget(target);
+
+    if (allowCloudFallback && !isKeyFreeApiTarget(target)) {
+      try {
+        const { hasWorldMonitorAccess, secretsReady } = await import('@/services/runtime-config');
+        await Promise.race([secretsReady, new Promise<void>(r => setTimeout(r, 2000))]);
+        if (!hasWorldMonitorAccess()) {
+          allowCloudFallback = false;
+        }
+      } catch {
+        allowCloudFallback = false;
+      }
+    }
 
     const cloudFallback = async () => {
       if (!allowCloudFallback) {
@@ -649,7 +667,8 @@ export function installRuntimeFetchPatch(): void {
       }
       const cloudUrl = `${getRemoteApiBaseUrl()}${target}`;
       if (debug) console.log(`[fetch] cloud fallback → ${cloudUrl}`);
-      return nativeFetch(cloudUrl, init);
+      const cloudHeaders = new Headers(init?.headers);
+      return nativeFetch(cloudUrl, { ...init, headers: cloudHeaders });
     };
 
     try {

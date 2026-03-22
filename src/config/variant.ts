@@ -1,11 +1,3 @@
-const buildVariant = (() => {
-  try {
-    return import.meta.env?.VITE_VARIANT || 'full';
-  } catch {
-    return 'full';
-  }
-})();
-
 export const SITE_VARIANT: string = (() => {
   const envVariant = import.meta.env?.VITE_VARIANT;
   if (typeof window === 'undefined') return envVariant || 'full';

@@ -186,7 +186,6 @@ function renderOverview(area: HTMLElement): void {
   const circumference = 2 * Math.PI * 40;
   const dashOffset = circumference - (pct / 100) * circumference;
   const ringColor = ready === total ? 'var(--settings-green)' : ready > 0 ? 'var(--settings-blue)' : 'var(--settings-yellow)';
-
   const catCards = SETTINGS_CATEGORIES.map(cat => {
     const { ready: catReady, total: catTotal } = getFeatureStatusCounts(cat);
     const cls = catReady === catTotal ? 'ov-cat-ok' : catReady > 0 ? 'ov-cat-partial' : 'ov-cat-warn';
@@ -211,13 +210,6 @@ function renderOverview(area: HTMLElement): void {
         </div>
       </div>
       <div class="settings-ov-cats">${catCards}</div>
-    </div>
-
-    <div class="settings-ov-license">
-      <section class="wm-section">
-        <h2 class="wm-section-title">All features available</h2>
-        <p class="wm-section-desc">World Monitor license gating has been removed. Features now depend only on provider configuration and runtime availability.</p>
-      </section>
     </div>
   `;
 
