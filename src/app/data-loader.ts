@@ -781,9 +781,8 @@ export class DataLoaderManager implements AppModule {
   }
 
   private async loadNewsCategory(category: string, feeds: typeof FEEDS.politics, digest?: ListFeedDigestResponse | null): Promise<NewsItem[]> {
+    const panel = this.ctx.newsPanels[category];
     try {
-      const panel = this.ctx.newsPanels[category];
-
       const enabledFeeds = (feeds ?? []).filter(f => !this.ctx.disabledSources.has(f.name));
       if (enabledFeeds.length === 0) {
         delete this.ctx.newsByCategory[category];
@@ -932,6 +931,13 @@ export class DataLoaderManager implements AppModule {
 
       return items;
     } catch (error) {
+      console.error(`[News] Category "${category}" failed:`, error);
+      if (panel) {
+        const message = error instanceof Error && error.message
+          ? error.message
+          : t('common.noNewsAvailable');
+        panel.showError(message);
+      }
       this.ctx.statusPanel?.updateFeed(category.charAt(0).toUpperCase() + category.slice(1), {
         status: 'error',
         errorMessage: String(error),
