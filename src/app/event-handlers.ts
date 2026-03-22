@@ -944,7 +944,7 @@ export class EventHandlerManager implements AppModule {
       if (!spec) return;
       openWidgetChatModal({
         mode: 'modify',
-        spec,
+        existingSpec: spec,
         tier: spec.tier ?? 'basic',
         onComplete: (nextSpec) => {
           const panel = this.ctx.panels[nextSpec.id];
