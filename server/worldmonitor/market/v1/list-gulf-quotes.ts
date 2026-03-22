@@ -8,11 +8,7 @@ import type {
   ListGulfQuotesRequest,
   ListGulfQuotesResponse,
 } from '../../../../src/generated/server/worldmonitor/market/v1/service_server';
-import {
-  fetchYahooQuotesBatch,
-} from './_shared';
-import { cachedFetchJson, getCachedJson } from '../../../_shared/redis';
-import gulfConfig from '../../../../shared/gulf.json';
+import { getCachedJson } from '../../../_shared/redis';
 
 const SEED_CACHE_KEY = 'market:gulf-quotes:v1';
 
