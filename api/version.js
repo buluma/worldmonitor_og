@@ -1,8 +1,8 @@
 // Non-sebuf: returns XML/HTML, stays as standalone Vercel function
 export const config = { runtime: 'edge' };
+import { fetchLatestRelease } from './_github-release.js';
+import { jsonResponse } from './_json-response.js';
 import { withEdgeObservability } from './_observability.js';
-
-export const config = { runtime: 'edge' };
 
 async function handler() {
   try {
