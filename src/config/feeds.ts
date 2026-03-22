@@ -1298,7 +1298,7 @@ export const DEFAULT_ENABLED_SOURCES: Record<string, string[]> = {
 };
 
 export const DEFAULT_ENABLED_INTEL: string[] = [
-  'Defense One', 'Breaking Defense', 'The War Zone', 'Defense News',
+  'Defense One', 'The War Zone', 'Defense News',
   'Military Times', 'USNI News', 'Bellingcat', 'Krebs Security',
 ];
 
