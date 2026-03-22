@@ -1,16 +1,34 @@
 #!/bin/sh
-# Run all seed scripts against the local Redis REST proxy.
+# Run all seed scripts against configured Redis, falling back to the local
+# Redis REST proxy when no explicit credentials are available.
 # Usage: ./scripts/run-seeders.sh
 #
-# Requires the worldmonitor stack to be running (uvx podman-compose up -d).
-# The Redis REST proxy listens on localhost:8079 by default.
+# If the local worldmonitor stack is running, the Redis REST proxy listens on
+# localhost:8079 by default.
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ENV_LOCAL="$PROJECT_DIR/.env.local"
+
+# Prefer real repo credentials when present so host-run seeders can write to the
+# same backend the app uses. Only populate keys that are currently unset.
+if [ -f "$ENV_LOCAL" ]; then
+  while IFS='=' read -r key value; do
+    case "$key" in
+      UPSTASH_REDIS_REST_URL|UPSTASH_REDIS_REST_TOKEN)
+        eval "current=\${$key}"
+        if [ -z "$current" ]; then
+          value=$(printf '%s' "$value" | sed "s/^['\"]//; s/['\"]$//")
+          export "$key=$value"
+        fi
+        ;;
+    esac
+  done < "$ENV_LOCAL"
+fi
 
 UPSTASH_REDIS_REST_URL="${UPSTASH_REDIS_REST_URL:-http://localhost:8079}"
 UPSTASH_REDIS_REST_TOKEN="${UPSTASH_REDIS_REST_TOKEN:-wm-local-token}"
 export UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN
-
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Source API keys from docker-compose.override.yml if present.
 # These keys are configured for the container but seeders run on the host.
