@@ -3,3 +3,6 @@ aptPkgs = ["curl"]
 
 [variables]
 NODE_OPTIONS = "--dns-result-order=ipv4first"
+
+[start]
+cmd = "node ais-relay.cjs"

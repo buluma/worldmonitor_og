@@ -13,6 +13,18 @@ This document covers all environment variables used by the AIS/OpenSky relay pat
 - Server relay callers: `server/worldmonitor/*` handlers
 - Optional browser local fallback callers in `src/services/*`
 
+## Railway Build/Start Settings
+
+Use one of these two layouts and keep the start command aligned with the chosen root:
+
+| Railway Root Directory | Build Config Source | Start Command |
+| --- | --- | --- |
+| repo root (`.`) | `nixpacks.toml` | `node scripts/ais-relay.cjs` |
+| `scripts` | `scripts/nixpacks.toml` | `node ais-relay.cjs` |
+
+Do not combine `Root Directory = scripts` with `Start Command = node scripts/ais-relay.cjs`.
+That resolves to `/app/scripts/ais-relay.cjs` inside the container, but the real file is `/app/ais-relay.cjs` when `scripts/` is the build root.
+
 ## 1) Minimum Production Setup
 
 Set these before enabling strict relay auth.
