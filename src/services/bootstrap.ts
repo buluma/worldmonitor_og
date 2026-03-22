@@ -1,5 +1,5 @@
 import { getPersistentCache, setPersistentCache } from '@/services/persistent-cache';
-import { toApiUrl } from '@/services/runtime';
+import { isDesktopRuntime, toApiUrl } from '@/services/runtime';
 
 const hydrationCache = new Map<string, unknown>();
 const BOOTSTRAP_CACHE_PREFIX = 'bootstrap:tier:';
@@ -159,10 +159,11 @@ export async function fetchBootstrapData(): Promise<void> {
   // Each tier gets its own abort controller so a slow response in one
   // doesn't kill the other. Keep the cap tight so startup stays snappy
   // and panels can fall through to their direct RPCs quickly.
+  const desktop = isDesktopRuntime();
   const fastCtrl = new AbortController();
   const slowCtrl = new AbortController();
-  const fastTimeout = setTimeout(() => fastCtrl.abort(), 1500);
-  const slowTimeout = setTimeout(() => slowCtrl.abort(), 2000);
+  const fastTimeout = setTimeout(() => fastCtrl.abort(), desktop ? 2500 : 1200);
+  const slowTimeout = setTimeout(() => slowCtrl.abort(), desktop ? 4000 : 1800);
   try {
     const [slowState, fastState] = await Promise.all([
       fetchTier('slow', slowCtrl.signal),

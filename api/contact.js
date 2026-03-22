@@ -2,7 +2,10 @@ export const config = { runtime: 'edge' };
 
 import { ConvexHttpClient } from 'convex/browser';
 import { getCorsHeaders, isDisallowedOrigin } from './_cors.js';
+import { createIpRateLimiter } from './_ip-rate-limit.js';
+import { jsonResponse } from './_json-response.js';
 import { withEdgeObservability } from './_observability.js';
+import { getClientIp, verifyTurnstile } from './_turnstile.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_RE = /^[+(]?\d[\d\s()./-]{4,23}\d$/;

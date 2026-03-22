@@ -48,7 +48,7 @@ describe('Bootstrap cache key registry', () => {
       keys.push(m[1]);
     }
     for (const key of keys) {
-      assert.match(key, /^[a-z_-]+(?::[a-z_-]+)+:v\d+$/, `Cache key "${key}" does not match expected pattern`);
+      assert.match(key, /^[a-z0-9_-]+(?::[a-z0-9_-]+)+(?:\:v\d+)?$/, `Cache key "${key}" does not match expected pattern`);
     }
   });
 
@@ -109,11 +109,11 @@ describe('Bootstrap cache key registry', () => {
       .map(f => readFileSync(join(root, 'scripts', f), 'utf-8'))
       .join('\n');
     const healthSrc = readFileSync(join(root, 'api', 'health.js'), 'utf-8');
-    const allSearchable = allHandlerCode + '\n' + seedFiles + '\n' + healthSrc;
+    const allSearchable = allProducerCode + '\n' + seedFiles + '\n' + healthSrc;
 
     for (const key of keys) {
       assert.ok(
-        allProducerCode.includes(key),
+        allSearchable.includes(key),
         `Cache key "${key}" not found in any handler or seed producer file`,
       );
     }

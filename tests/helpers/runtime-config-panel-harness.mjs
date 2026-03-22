@@ -402,6 +402,10 @@ async function loadRuntimeConfigPanel() {
         return true;
       }
 
+      export function hasWorldMonitorAccess() {
+        return true;
+      }
+
       export function setFeatureToggle() {}
 
       export async function setSecretValue() {}

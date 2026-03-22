@@ -1,6 +1,13 @@
+const buildVariant = (() => {
+  try {
+    return import.meta.env?.VITE_VARIANT || 'full';
+  } catch {
+    return 'full';
+  }
+})();
+
 export const SITE_VARIANT: string = (() => {
-  const envVariant = import.meta.env?.VITE_VARIANT;
-  if (typeof window === 'undefined') return envVariant || 'full';
+  if (typeof window === 'undefined') return buildVariant;
 
   const readStoredVariant = (): string | null => {
     const stored = localStorage.getItem('worldmonitor-variant');
@@ -13,7 +20,7 @@ export const SITE_VARIANT: string = (() => {
   if (isTauri) {
     const stored = readStoredVariant();
     if (stored) return stored;
-    return envVariant || 'full';
+    return buildVariant;
   }
 
   const h = location.hostname;
@@ -26,7 +33,7 @@ export const SITE_VARIANT: string = (() => {
   if (isRuntimeSwitchHost) {
     const stored = readStoredVariant();
     if (stored) return stored;
-    return envVariant || 'full';
+    return buildVariant;
   }
 
   return 'full';

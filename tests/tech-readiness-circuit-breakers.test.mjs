@@ -29,11 +29,12 @@ import * as ts from 'typescript'; // TypeScript compiler API — available via t
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, '..');
 const economicPath = resolve(root, 'src/services/economic/index.ts');
+const src = readFileSync(economicPath, 'utf-8');
 
 function loadEconomicSourceFile() {
   return ts.createSourceFile(
     economicPath,
-    readFileSync(economicPath, 'utf-8'),
+    src,
     ts.ScriptTarget.Latest,
     true,
     ts.ScriptKind.TS,
@@ -180,7 +181,7 @@ describe('economic/index.ts — per-indicator World Bank circuit breakers', () =
   it('uses a Map-backed factory for per-indicator WB breakers', () => {
     const wbBreakerSection = src.slice(
       src.indexOf('wbBreakers'),
-      src.indexOf('wbBreakers') + 400,
+      src.indexOf('wbBreakers') + 800,
     );
     assert.match(wbBreakerSection, /new\s+Map/, 'wbBreakers must use a Map');
     assert.match(wbBreakerSection, /wbBreakers\.has\(indicatorCode\)/,

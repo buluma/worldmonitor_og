@@ -1,6 +1,6 @@
 import type { AppContext, AppModule } from '@/app/app-context';
 import type { AirlineIntelPanel } from '@/components/AirlineIntelPanel';
-import { deleteWidget, isProUser } from '@/services/widget-store';
+import { deleteWidget, getWidget, isProUser } from '@/services/widget-store';
 import { deleteMcpPanel } from '@/services/mcp-store';
 import type { PanelConfig, MapLayers } from '@/types';
 import type { MapView } from '@/components';
@@ -53,6 +53,7 @@ import { invokeTauri } from '@/services/tauri-bridge';
 import { dataFreshness } from '@/services/data-freshness';
 import { mlWorker } from '@/services/ml-worker';
 import { UnifiedSettings } from '@/components/UnifiedSettings';
+import { openWidgetChatModal } from '@/components/WidgetChatModal';
 import { t } from '@/services/i18n';
 import { TvModeController } from '@/services/tv-mode';
 
@@ -934,6 +935,25 @@ export class EventHandlerManager implements AppModule {
     if (mobileBtn) {
       mobileBtn.addEventListener('click', () => this.ctx.unifiedSettings?.open());
     }
+
+    document.addEventListener('wm:widget-modify', (event) => {
+      if (!isProUser()) return;
+      const widgetId = (event as CustomEvent<{ widgetId?: string }>).detail?.widgetId;
+      if (!widgetId) return;
+      const spec = getWidget(widgetId);
+      if (!spec) return;
+      openWidgetChatModal({
+        mode: 'modify',
+        spec,
+        tier: spec.tier ?? 'basic',
+        onComplete: (nextSpec) => {
+          const panel = this.ctx.panels[nextSpec.id];
+          if (panel && 'updateSpec' in panel && typeof panel.updateSpec === 'function') {
+            panel.updateSpec(nextSpec);
+          }
+        },
+      });
+    });
   }
 
   setupPlaybackControl(): void {

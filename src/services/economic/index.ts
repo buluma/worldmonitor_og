@@ -551,7 +551,7 @@ export async function getTechReadinessRankings(
 
     // Fallback: fetch the pre-computed seed key directly from bootstrap endpoint.
     // Data is seeded by seed-wb-indicators.mjs — never call WB API from frontend.
-    const resp = await fetch('/api/bootstrap?keys=techReadiness', {
+    const resp = await fetch(toApiUrl('/api/bootstrap?keys=techReadiness'), {
       signal: AbortSignal.timeout(5_000),
     });
     if (!resp.ok) {

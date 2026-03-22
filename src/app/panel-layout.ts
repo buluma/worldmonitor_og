@@ -496,8 +496,8 @@ export class PanelLayoutManager implements AppModule {
   mountLiveNewsIfReady(): void {
     if (this.ctx.panels['live-news']) return;
     if (getDefaultLiveChannels().length === 0 && loadChannelsFromStorage().length === 0) return;
-    const panel = new LiveNewsPanel();
-    this.ctx.panels['live-news'] = panel;
+    const panel = this.createPanel('live-news', () => new LiveNewsPanel());
+    if (!panel) return;
     const el = panel.getElement();
     this.makeDraggable(el, 'live-news');
     const grid = document.getElementById('panelsGrid');

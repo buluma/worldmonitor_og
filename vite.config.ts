@@ -943,6 +943,13 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       open: !isE2E,
       hmr: isE2E ? false : undefined,
+      proxy: {
+        '/widget-agent': {
+          target: 'https://proxy.worldmonitor.app',
+          changeOrigin: true,
+          secure: true,
+        },
+      },
       watch: {
         ignored: [
           '**/test-results/**',

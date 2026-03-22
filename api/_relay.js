@@ -1,5 +1,6 @@
 import { getCorsHeaders, isDisallowedOrigin } from './_cors.js';
 import { validateApiKey } from './_api-key.js';
+import { jsonResponse } from './_json-response.js';
 import { checkRateLimit } from './_rate-limit.js';
 import { withEdgeObservability } from './_observability.js';
 
