@@ -67,7 +67,11 @@ import {
   fetchRadiationWatch,
 } from '@/services';
 import { getMarketWatchlistEntries } from '@/services/market-watchlist';
-import { fetchStockAnalysesForTargets, getStockAnalysisTargets } from '@/services/stock-analysis';
+import {
+  fetchStockAnalysesForTargets,
+  getStockAnalysisTargets,
+  PremiumStockUnavailableError,
+} from '@/services/stock-analysis';
 import {
   fetchStockBacktestsForTargets,
   fetchStoredStockBacktests,
@@ -1129,6 +1133,21 @@ export class DataLoaderManager implements AppModule {
       const nextHistory = mergeStockAnalysisHistory(storedHistory, results);
       panel.renderAnalyses(results, nextHistory, 'live');
     } catch (error) {
+      if (error instanceof PremiumStockUnavailableError) {
+        console.warn('[StockAnalysis] unavailable:', error.message);
+        const cachedHistory = await fetchStockAnalysisHistory().catch(() => ({}));
+        const cachedSnapshots = getLatestStockAnalysisSnapshots(cachedHistory);
+        if (cachedSnapshots.length > 0) {
+          panel.renderAnalyses(cachedSnapshots, cachedHistory, 'cached');
+          return;
+        }
+        if (error.kind === 'config') {
+          panel.showError(error.message);
+        } else {
+          panel.showRetrying(error.message);
+        }
+        return;
+      }
       console.error('[StockAnalysis] failed:', error);
       const cachedHistory = await fetchStockAnalysisHistory().catch(() => ({}));
       const cachedSnapshots = getLatestStockAnalysisSnapshots(cachedHistory);
@@ -1166,6 +1185,20 @@ export class DataLoaderManager implements AppModule {
       }
       panel.renderBacktests(results);
     } catch (error) {
+      if (error instanceof PremiumStockUnavailableError) {
+        console.warn('[StockBacktest] unavailable:', error.message);
+        const stored = await fetchStoredStockBacktests().catch(() => []);
+        if (stored.length > 0) {
+          panel.renderBacktests(stored, 'cached');
+          return;
+        }
+        if (error.kind === 'config') {
+          panel.showError(error.message);
+        } else {
+          panel.showRetrying(error.message);
+        }
+        return;
+      }
       console.error('[StockBacktest] failed:', error);
       const stored = await fetchStoredStockBacktests().catch(() => []);
       if (stored.length > 0) {
