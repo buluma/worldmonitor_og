@@ -53,16 +53,29 @@ function groupByDate(events: EconomicEvent[]): Map<string, EconomicEvent[]> {
   return map;
 }
 
-function formatDate(dateStr: string): string {
-  if (!dateStr || dateStr === 'Unknown') return 'Unknown Date';
+function formatDateGroup(dateStr: string): string {
+  if (!dateStr || dateStr === 'Unknown') return 'Unknown';
   const d = new Date(`${dateStr}T00:00:00`);
   if (Number.isNaN(d.getTime())) return dateStr;
-  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-function formatMetaValue(val: string, unit: string): string {
+function fmtVal(val: string, unit: string): string {
   if (!val) return '—';
   return unit ? `${val} ${unit}` : val;
+}
+
+function countdown(dateStr: string): string {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const d = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return '';
+  const days = Math.round((d.getTime() - today.getTime()) / 86_400_000);
+  if (days === 0) return 'today';
+  if (days === 1) return 'tomorrow';
+  if (days < 0) return Math.abs(days) < 14 ? `${Math.abs(days)}d ago` : `${Math.round(Math.abs(days) / 7)}w ago`;
+  if (days < 14) return `in ${days}d`;
+  return `in ${Math.round(days / 7)}w`;
 }
 
 export class EconomicCalendarPanel extends Panel {
@@ -105,38 +118,70 @@ export class EconomicCalendarPanel extends Panel {
     }
 
     const grouped = groupByDate(this._events);
-    const sections: string[] = [];
+    let bodyRows = '';
+    let isFirstGroup = true;
 
     for (const [date, events] of grouped) {
-      const dateHeader = `<div class="econ-cal-date-header">${escapeHtml(formatDate(date))}</div>`;
-      const rows = events.map((ev) => {
+      const borderTop = isFirstGroup ? '' : 'border-top:1px solid rgba(255,255,255,0.06);';
+      isFirstGroup = false;
+
+      bodyRows += `<tr>
+        <td colspan="3" style="
+          padding:10px 0 3px;
+          font-size:10px;font-weight:600;
+          color:rgba(255,255,255,0.35);
+          text-transform:uppercase;letter-spacing:0.06em;
+          ${borderTop}
+        ">${escapeHtml(formatDateGroup(date))}</td>
+      </tr>`;
+
+      for (const ev of events) {
         const impact = (ev.impact || 'low').toLowerCase();
-        const color = IMPACT_COLORS[impact] ?? IMPACT_COLORS.low;
+        const impactColor = IMPACT_COLORS[impact] ?? IMPACT_COLORS.low;
         const flag = COUNTRY_FLAGS[ev.country] ?? escapeHtml(ev.country);
         const isHigh = impact === 'high';
-        const badge = `<span class="econ-cal-badge" style="background:${color};color:#fff;padding:1px 5px;border-radius:3px;font-size:0.7em;font-weight:700;text-transform:uppercase;">${escapeHtml(impact)}</span>`;
-        const name = isHigh
-          ? `<strong>${escapeHtml(ev.event)}</strong>`
-          : escapeHtml(ev.event);
-        const meta = [
-          ev.actual ? `<span>Actual: ${escapeHtml(formatMetaValue(ev.actual, ev.unit))}</span>` : '',
-          ev.estimate ? `<span>Est: ${escapeHtml(formatMetaValue(ev.estimate, ev.unit))}</span>` : '',
-          ev.previous ? `<span>Prev: ${escapeHtml(formatMetaValue(ev.previous, ev.unit))}</span>` : '',
-        ].filter(Boolean).join(' &nbsp;');
 
-        return `<div class="econ-cal-event">
-          <div class="econ-cal-event-main">
-            <span class="econ-cal-flag">${flag}</span>
-            <span class="econ-cal-name">${name}</span>
-            ${badge}
-          </div>
-          ${meta ? `<div class="econ-cal-meta">${meta}</div>` : ''}
-        </div>`;
-      }).join('');
+        // Right column: actual value when released, countdown otherwise
+        let rightLabel: string;
+        let rightStyle: string;
+        if (ev.actual) {
+          rightLabel = escapeHtml(fmtVal(ev.actual, ev.unit));
+          rightStyle = 'color:var(--text);font-weight:600';
+        } else {
+          rightLabel = escapeHtml(countdown(ev.date));
+          rightStyle = 'color:rgba(255,255,255,0.35);font-style:italic';
+        }
 
-      sections.push(`<div class="econ-cal-group">${dateHeader}${rows}</div>`);
+        bodyRows += `<tr style="font-size:12px;line-height:1.2">
+          <td style="padding:4px 8px 4px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:0">
+            <span style="margin-right:5px">${flag}</span><span style="font-weight:${isHigh ? 600 : 400}">${escapeHtml(ev.event)}</span>
+          </td>
+          <td style="padding:4px 6px;text-align:center;vertical-align:middle">
+            <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${impactColor};vertical-align:middle"></span>
+          </td>
+          <td style="padding:4px 0;text-align:right;font-variant-numeric:tabular-nums;${rightStyle};white-space:nowrap">${rightLabel}</td>
+        </tr>`;
+      }
     }
 
-    this.setContent(`<div class="econ-cal-panel">${sections.join('')}</div>`);
+    const html = `<div style="padding:0 14px 12px;max-height:480px;overflow-y:auto">
+      <table style="width:100%;border-collapse:collapse;table-layout:fixed">
+        <colgroup>
+          <col style="width:auto">
+          <col style="width:20px">
+          <col style="width:64px">
+        </colgroup>
+        <thead>
+          <tr style="font-size:9px;font-weight:600;color:rgba(255,255,255,0.25);text-transform:uppercase;letter-spacing:0.06em">
+            <th style="text-align:left;padding:0 8px 8px 0;font-weight:600">EVENT</th>
+            <th style="padding:0 0 8px;font-weight:600"></th>
+            <th style="text-align:right;padding:0 0 8px;font-weight:600"></th>
+          </tr>
+        </thead>
+        <tbody>${bodyRows}</tbody>
+      </table>
+    </div>`;
+
+    this.setContent(html);
   }
 }
