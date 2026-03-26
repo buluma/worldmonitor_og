@@ -212,6 +212,22 @@ const EMPTY_DATA_OK_KEYS = new Set([
   'earningsCalendar', 'econCalendar', 'cotPositioning',
 ]);
 
+// In local Docker/self-hosted mode, a large subset of feeds are optional or
+// depend on credentials, hosted relay loops, or premium upstream access. They
+// should not count against base stack readiness.
+const SELF_HOST_OPTIONAL_KEYS = new Set([
+  'outages', 'sectors', 'wildfires', 'positiveGeoEvents', 'riskScores',
+  'flightDelays', 'insights', 'gulfQuotes', 'ucdpEvents', 'techEvents',
+  'gdeltIntel', 'sanctionsPressure', 'sanctionsEntities', 'radiationWatch',
+  'consumerPricesOverview', 'consumerPricesCategories', 'consumerPricesMovers', 'consumerPricesSpread', 'consumerPricesFreshness',
+  'groceryBasket', 'defiTokens', 'aiTokens', 'otherTokens',
+  'macroSignals', 'shippingRates', 'chokepoints', 'giving', 'gpsjam', 'riskScoresLive',
+  'usniFleet', 'usniFleetStale', 'intlDelays', 'notamClosures', 'positiveEventsLive',
+  'cableHealth', 'militaryBases', 'temporalAnomalies', 'satellites',
+  'portwatch', 'corridorrisk', 'chokepointTransits', 'transitSummaries',
+  'thermalEscalation', 'gscpi', 'simulationPackageLatest', 'simulationOutcomeLatest',
+]);
+
 // Cascade groups: if any key in the group has data, all empty siblings are OK.
 // Theater posture uses live → stale → backup fallback chain.
 const CASCADE_GROUPS = {
@@ -256,7 +272,7 @@ function dataSize(parsed) {
                       'airports', 'closedIcaos', 'categories', 'regions', 'entries', 'satellites',
                       'sectors', 'statuses', 'scores', 'topics', 'advisories', 'months',
                       'observations', 'datapoints', 'clusters',
-                      'earnings', 'instruments',
+                      'earnings', 'instruments', 'tokens', 'topStories', 'entities',
                       'charts']) {
       if (Array.isArray(parsed[k])) return parsed[k].length;
     }
@@ -278,6 +294,10 @@ export default async function handler(req) {
   }
 
   const now = Date.now();
+  const url = new URL(req.url);
+  const selfHostedMode = process.env.WM_SELF_HOSTED === '1'
+    || process.env.LOCAL_API_MODE === 'docker'
+    || url.searchParams.get('mode') === 'selfhosted';
 
   const allDataKeys = [
     ...Object.values(BOOTSTRAP_KEYS),
@@ -308,6 +328,9 @@ export default async function handler(req) {
   let okCount = 0;
   let warnCount = 0;
   let critCount = 0;
+  let optionalOkCount = 0;
+
+  const isSelfHostedOptional = (name) => selfHostedMode && SELF_HOST_OPTIONAL_KEYS.has(name);
 
   for (const [name, redisKey] of Object.entries(BOOTSTRAP_KEYS)) {
     totalChecks++;
@@ -331,7 +354,11 @@ export default async function handler(req) {
 
     let status;
     if (!parsed || raw === NEG_SENTINEL) {
-      if (EMPTY_DATA_OK_KEYS.has(name)) {
+      if (isSelfHostedOptional(name)) {
+        status = 'OK_OPTIONAL';
+        okCount++;
+        optionalOkCount++;
+      } else if (EMPTY_DATA_OK_KEYS.has(name)) {
         if (seedStale === true) {
           status = 'STALE_SEED';
           warnCount++;
@@ -344,7 +371,11 @@ export default async function handler(req) {
         critCount++;
       }
     } else if (size === 0) {
-      if (EMPTY_DATA_OK_KEYS.has(name)) {
+      if (isSelfHostedOptional(name)) {
+        status = 'OK_OPTIONAL';
+        okCount++;
+        optionalOkCount++;
+      } else if (EMPTY_DATA_OK_KEYS.has(name)) {
         if (seedStale === true) {
           status = 'STALE_SEED';
           warnCount++;
@@ -357,8 +388,14 @@ export default async function handler(req) {
         critCount++;
       }
     } else if (seedStale === true) {
-      status = 'STALE_SEED';
-      warnCount++;
+      if (isSelfHostedOptional(name)) {
+        status = 'OK_OPTIONAL';
+        okCount++;
+        optionalOkCount++;
+      } else {
+        status = 'STALE_SEED';
+        warnCount++;
+      }
     } else {
       status = 'OK';
       okCount++;
@@ -377,6 +414,7 @@ export default async function handler(req) {
     const size = dataSize(parsed);
     const isOnDemand = ON_DEMAND_KEYS.has(name);
     const seedCfg = SEED_META[name];
+    const cascadeSiblings = CASCADE_GROUPS[name];
 
     // Freshness tracking for standalone keys (same logic as bootstrap keys)
     let seedAge = null;
@@ -394,7 +432,6 @@ export default async function handler(req) {
     }
 
     // Cascade: if this key is empty but a sibling in the cascade group has data, it's OK.
-    const cascadeSiblings = CASCADE_GROUPS[name];
     let cascadeCovered = false;
     if (cascadeSiblings && (!parsed || size === 0)) {
       for (const sibling of cascadeSiblings) {
@@ -415,6 +452,10 @@ export default async function handler(req) {
       if (cascadeCovered) {
         status = 'OK_CASCADE';
         okCount++;
+      } else if (isSelfHostedOptional(name)) {
+        status = 'OK_OPTIONAL';
+        okCount++;
+        optionalOkCount++;
       } else if (EMPTY_DATA_OK_KEYS.has(name)) {
         if (seedStale === true) {
           status = 'STALE_SEED';
@@ -434,6 +475,10 @@ export default async function handler(req) {
       if (cascadeCovered) {
         status = 'OK_CASCADE';
         okCount++;
+      } else if (isSelfHostedOptional(name)) {
+        status = 'OK_OPTIONAL';
+        okCount++;
+        optionalOkCount++;
       } else if (EMPTY_DATA_OK_KEYS.has(name)) {
         if (seedStale === true) {
           status = 'STALE_SEED';
@@ -450,8 +495,17 @@ export default async function handler(req) {
         critCount++;
       }
     } else if (seedStale === true) {
-      status = 'STALE_SEED';
-      warnCount++;
+      if (cascadeSiblings && cascadeSiblings.some((sibling) => sibling !== name && dataSize(parseRedisValue(keyValues.get(STANDALONE_KEYS[sibling]))) > 0)) {
+        status = 'OK_CASCADE';
+        okCount++;
+      } else if (isSelfHostedOptional(name)) {
+        status = 'OK_OPTIONAL';
+        okCount++;
+        optionalOkCount++;
+      } else {
+        status = 'STALE_SEED';
+        warnCount++;
+      }
     } else {
       status = 'OK';
       okCount++;
@@ -490,16 +544,17 @@ export default async function handler(req) {
     }), 'EX', 86400]]).catch(() => {});
   }
 
-  const url = new URL(req.url);
   const compact = url.searchParams.get('compact') === '1';
 
   const body = {
     status: overall,
+    mode: selfHostedMode ? 'self_hosted' : 'standard',
     summary: {
       total: totalChecks,
       ok: okCount,
       warn: warnCount,
       crit: critCount,
+      optionalOk: optionalOkCount,
     },
     checkedAt: new Date(now).toISOString(),
   };
@@ -509,7 +564,7 @@ export default async function handler(req) {
   } else {
     const problems = {};
     for (const [name, check] of Object.entries(checks)) {
-      if (check.status !== 'OK' && check.status !== 'OK_CASCADE') problems[name] = check;
+      if (check.status !== 'OK' && check.status !== 'OK_CASCADE' && check.status !== 'OK_OPTIONAL') problems[name] = check;
     }
     if (Object.keys(problems).length > 0) body.problems = problems;
   }

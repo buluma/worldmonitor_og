@@ -209,16 +209,28 @@ async function fetchSubmarineCables() {
   const cables = [];
   const failed = [];
 
+  async function fetchCableDetail(id) {
+    const resp = await fetch(`${BASE}/cable/${id}.json`, {
+      headers: { 'User-Agent': CHROME_UA },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!resp.ok) {
+      failed.push(id);
+      return null;
+    }
+    const body = await resp.text();
+    try {
+      return { id, data: JSON.parse(body) };
+    } catch (err) {
+      console.warn(`  ${id}: invalid JSON detail payload (${err.message})`);
+      failed.push(id);
+      return null;
+    }
+  }
+
   for (let i = 0; i < allIds.length; i += 5) {
     const batch = allIds.slice(i, i + 5);
-    const results = await Promise.all(batch.map(async (id) => {
-      const resp = await fetch(`${BASE}/cable/${id}.json`, {
-        headers: { 'User-Agent': CHROME_UA },
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (!resp.ok) { failed.push(id); return null; }
-      return { id, data: await resp.json() };
-    }));
+    const results = await Promise.all(batch.map((id) => fetchCableDetail(id)));
 
     for (const result of results) {
       if (!result) continue;

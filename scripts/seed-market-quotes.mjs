@@ -124,7 +124,7 @@ async function fetchAndStash() {
   return seedData;
 }
 
-runSeed('market', 'quotes', CANONICAL_KEY, fetchAndStash, {
+runSeed('market', 'stocks', CANONICAL_KEY, fetchAndStash, {
   validateFn: validate,
   ttlSeconds: CACHE_TTL,
   sourceVersion: 'yahoo+finnhub',

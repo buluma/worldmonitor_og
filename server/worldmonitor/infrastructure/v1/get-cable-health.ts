@@ -7,7 +7,7 @@ import type {
   CableHealthStatus,
 } from '../../../../src/generated/server/worldmonitor/infrastructure/v1/service_server';
 
-import { cachedFetchJson, setCachedJson } from '../../../_shared/redis';
+import { cachedFetchJson, getCachedJson, setCachedJson } from '../../../_shared/redis';
 import { UPSTREAM_TIMEOUT_MS } from './_shared';
 import { CHROME_UA } from '../../../_shared/constants';
 
@@ -19,6 +19,7 @@ const CACHE_KEY = 'cable-health-v1';
 const CACHE_TTL = 1800; // 30 min — matches warm-ping interval; ensures recencyWeight decay is recomputed each cycle
 const NGA_CACHE_KEY = 'cable-health-nga-warnings-v1';
 const NGA_CACHE_TTL = 86400; // 24h — raw NGA warnings are stable; long TTL survives relay downtime without hammering upstream
+const SEEDED_CABLES_KEY = 'infrastructure:submarine-cables:v1';
 
 // In-memory fallback: serves stale data when both Redis and NGA are down
 let fallbackCache: GetCableHealthResponse | null = null;
@@ -162,6 +163,10 @@ interface Signal {
   ttlSeconds: number;
   kind: string;
   evidence: Array<{ source: string; summary: string; ts: number }>;
+}
+
+interface SeededCableDataset {
+  cables?: Array<{ id?: string }>;
 }
 
 // ========================================================================
@@ -418,6 +423,26 @@ export function computeHealthMap(signals: Signal[]): Record<string, CableHealthR
   return healthMap;
 }
 
+async function loadSeededCableIds(): Promise<string[]> {
+  const seeded = await getCachedJson(SEEDED_CABLES_KEY, true) as SeededCableDataset | null;
+  if (!Array.isArray(seeded?.cables)) return [];
+  return [...new Set(seeded.cables.map((c) => c?.id).filter((id): id is string => typeof id === 'string' && id.length > 0))];
+}
+
+function buildBaselineHealthMap(cableIds: string[], now: number): Record<string, CableHealthRecord> {
+  const baseline: Record<string, CableHealthRecord> = {};
+  for (const cableId of cableIds) {
+    baseline[cableId] = {
+      status: 'CABLE_HEALTH_STATUS_OK',
+      score: 0,
+      confidence: 1,
+      lastUpdated: now,
+      evidence: [],
+    };
+  }
+  return baseline;
+}
+
 // ========================================================================
 // RPC implementation
 // ========================================================================
@@ -435,10 +460,15 @@ export async function getCableHealth(
       // untouched so the previous valid computed response is served from fallbackCache.
       const ngaData = await cachedFetchJson<NgaWarning[]>(NGA_CACHE_KEY, NGA_CACHE_TTL, fetchNgaWarnings);
       if (ngaData === null) return null;
+      const generatedAt = Date.now();
+      const seededCableIds = await loadSeededCableIds();
       const signals = processNgaSignals(ngaData);
-      const cables = computeHealthMap(signals);
+      const cables = {
+        ...buildBaselineHealthMap(seededCableIds, generatedAt),
+        ...computeHealthMap(signals),
+      };
 
-      return { generatedAt: Date.now(), cables };
+      return { generatedAt, cables };
     });
 
     if (result) {

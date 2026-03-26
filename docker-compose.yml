@@ -11,7 +11,6 @@
 # =============================================================================
 
 services:
-
   worldmonitor:
     build:
       context: .
@@ -20,11 +19,14 @@ services:
     container_name: worldmonitor
     ports:
       - "${WM_PORT:-3000}:8080"
+    env_file:
+      - .env.local
     environment:
       UPSTASH_REDIS_REST_URL: "http://redis-rest:80"
       UPSTASH_REDIS_REST_TOKEN: "${REDIS_TOKEN:-wm-local-token}"
       LOCAL_API_PORT: "46123"
       LOCAL_API_MODE: "docker"
+      WM_SELF_HOSTED: "1"
       LOCAL_API_CLOUD_FALLBACK: "false"
       WS_RELAY_URL: "http://ais-relay:3004"
       # LLM provider (any OpenAI-compatible endpoint)
@@ -64,8 +66,9 @@ services:
       dockerfile: Dockerfile.relay
     image: worldmonitor-ais-relay:latest
     container_name: worldmonitor-ais-relay
+    env_file:
+      - .env.local
     environment:
-      AISSTREAM_API_KEY: "${AISSTREAM_API_KEY:-}"
       PORT: "3004"
     restart: unless-stopped
 
@@ -85,6 +88,8 @@ services:
     container_name: worldmonitor-redis-rest
     ports:
       - "127.0.0.1:8079:80"
+    env_file:
+      - .env.local
     environment:
       SRH_TOKEN: "${REDIS_TOKEN:-wm-local-token}"
       SRH_CONNECTION_STRING: "redis://redis:6379"

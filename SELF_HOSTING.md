@@ -28,6 +28,8 @@ open http://localhost:3000
 
 The dashboard works out of the box with public data sources (earthquakes, weather, conflicts, etc.). API keys unlock additional data feeds.
 
+`/api/health` runs in self-hosted mode inside the Docker stack. Optional or premium-gated feeds are reported as `OK_OPTIONAL` instead of failing base stack readiness, so local health reflects what a self-host deployment can actually support.
+
 ## 🔑 API Keys
 
 Create a `docker-compose.override.yml` to inject your keys. This file is **gitignored** — your secrets stay local.
@@ -88,13 +90,31 @@ The seed scripts fetch upstream data and write it to Redis. They run **on the ho
 ./scripts/run-seeders.sh
 ```
 
-**⚠️ Important:** Redis data persists across container restarts via the `redis-data` volume, but is lost on `docker compose down -v`. Re-run the seeders if you remove volumes or see stale data.
-
-To automate, add a cron job:
+`run-seeders.sh` now enforces a per-script timeout so one slow upstream does not block the full local seed cycle. Override the default 180 seconds if needed:
 
 ```bash
-# Re-seed every 30 minutes
-*/30 * * * * cd /path/to/worldmonitor && ./scripts/run-seeders.sh >> /tmp/wm-seeders.log 2>&1
+SEEDER_TIMEOUT_SEC=300 ./scripts/run-seeders.sh
+```
+
+**⚠️ Important:** Redis data persists across container restarts via the `redis-data` volume, but is lost on `docker compose down -v`. Re-run the seeders if you remove volumes or see stale data.
+
+For a simple always-on self-host setup, use the cron wrapper:
+
+```bash
+# Fast maintenance pass every 15 minutes: refreshes short-TTL feeds that most often
+# drag /api/health below green in Docker self-host mode.
+*/15 * * * * /path/to/worldmonitor/scripts/wm-cron-seeder.sh
+
+# Full sweep every 6 hours: runs the existing all-seeder pass for slower feeds.
+17 */6 * * * WM_CRON_MODE=full /path/to/worldmonitor/scripts/wm-cron-seeder.sh
+```
+
+`wm-cron-seeder.sh` auto-detects the repo path, defaults to your local Docker Redis proxy at `http://localhost:8079`, primes the local `serviceStatuses` cache, and writes logs to `/tmp/wm-seeders.log`. Override behavior with:
+
+```bash
+WM_CRON_LOG_FILE=/tmp/worldmonitor-seeders.log
+WM_APP_URL=http://localhost:3000
+SEEDER_TIMEOUT_SEC=180
 ```
 
 ### 🔧 Manual seeder invocation

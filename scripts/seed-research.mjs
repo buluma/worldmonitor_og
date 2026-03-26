@@ -325,7 +325,10 @@ async function fetchAll() {
     }
   }
   if (allData.hn) { for (const [key, data] of Object.entries(allData.hn)) await writeExtraKeyWithMeta(key, data, HN_TTL, data.items?.length ?? 0); }
-  if (allData.techEvents?.events?.length > 0) await writeExtraKeyWithMeta('research:tech-events:v1', allData.techEvents, TECH_EVENTS_TTL, allData.techEvents.events.length);
+  if (allData.techEvents?.events?.length > 0) {
+    await writeExtraKeyWithMeta('research:tech-events:v1', allData.techEvents, TECH_EVENTS_TTL, allData.techEvents.events.length);
+    await writeExtraKeyWithMeta('research:tech-events-bootstrap:v1', allData.techEvents, TECH_EVENTS_TTL, allData.techEvents.events.length);
+  }
   if (allData.trending) { for (const [key, data] of Object.entries(allData.trending)) await writeExtraKeyWithMeta(key, data, TRENDING_TTL, data.repos?.length ?? 0); }
 
   const primaryKey = allData.arxiv?.['research:arxiv:v1:cs.AI::50'];

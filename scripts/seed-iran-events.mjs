@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 
 import { loadEnvFile, CHROME_UA, getRedisCredentials, runSeed } from './_seed-utils.mjs';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 
 loadEnvFile(import.meta.url);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CANONICAL_KEY = 'conflict:iran-events:v1';
+const HISTORICAL_SNAPSHOT_REF = '1262e79b^:scripts/data/iran-events-latest.json';
 
 const LOCATION_COORDS = {
   'tehran':        { lat: 35.6892, lon: 51.3890 },
@@ -196,10 +198,28 @@ function parseRelativeTime(timeStr) {
 }
 
 async function fetchIranEvents() {
-  const dataPath = process.argv[2] || join(__dirname, 'data', 'iran-events-latest.json');
+  const dataPath = process.argv[2]
+    || process.env.IRAN_EVENTS_DATA_PATH
+    || join(__dirname, 'data', 'iran-events-latest.json');
   console.log(`  Reading from: ${dataPath}`);
 
-  const raw = JSON.parse(readFileSync(dataPath, 'utf8'));
+  let rawText = '';
+  if (existsSync(dataPath)) {
+    rawText = readFileSync(dataPath, 'utf8');
+  } else {
+    console.warn(`  Snapshot not found at ${dataPath} — trying historical git fallback ${HISTORICAL_SNAPSHOT_REF}`);
+    try {
+      rawText = execFileSync('git', ['show', HISTORICAL_SNAPSHOT_REF], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 15_000,
+      });
+    } catch (err) {
+      throw new Error(`Iran events snapshot not found at ${dataPath}. Set IRAN_EVENTS_DATA_PATH or pass a file path argument.`);
+    }
+  }
+
+  const raw = JSON.parse(rawText);
   const events = raw.filter(e => e.id && e.title);
 
   console.log(`  Raw events: ${events.length}`);

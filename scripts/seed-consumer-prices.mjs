@@ -148,7 +148,7 @@ async function run() {
       key: `consumer-prices:retailer-spread:${MARKET}:${BASKET}`,
       data: spread ?? emptySpread(MARKET, BASKET),
       ttl: TTL_SPREAD,
-      metaKey: `seed-meta:consumer-prices:spread:${MARKET}`,
+      metaKey: `seed-meta:consumer-prices:retailer-spread:${MARKET}:${BASKET}`,
     },
     {
       key: `consumer-prices:freshness:${MARKET}`,

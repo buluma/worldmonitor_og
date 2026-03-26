@@ -205,16 +205,26 @@ function categorizeStory(title) {
 }
 
 async function warmDigestCache() {
-  const apiBase = process.env.API_BASE_URL || 'https://api.worldmonitor.app';
-  try {
-    const resp = await fetch(`${apiBase}/api/news/v1/list-feed-digest?variant=full&lang=en`, {
-      headers: { 'User-Agent': CHROME_UA },
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (resp.ok) console.log('  Digest cache warmed via RPC');
-    else console.warn(`  Digest warm failed: HTTP ${resp.status}`);
-  } catch (err) {
-    console.warn(`  Digest warm failed: ${err.message}`);
+  const candidates = [
+    process.env.API_BASE_URL,
+    'http://localhost:3000',
+    'https://api.worldmonitor.app',
+  ].filter(Boolean);
+
+  for (const apiBase of candidates) {
+    try {
+      const resp = await fetch(`${apiBase}/api/news/v1/list-feed-digest?variant=full&lang=en`, {
+        headers: { 'User-Agent': CHROME_UA },
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (resp.ok) {
+        console.log(`  Digest cache warmed via RPC (${apiBase})`);
+        return;
+      }
+      console.warn(`  Digest warm failed via ${apiBase}: HTTP ${resp.status}`);
+    } catch (err) {
+      console.warn(`  Digest warm failed via ${apiBase}: ${err.message}`);
+    }
   }
 }
 
