@@ -150,7 +150,7 @@ export function isProWidgetEnabled(): boolean {
 }
 
 export function isProUser(): boolean {
-  return isWidgetFeatureEnabled() || isProWidgetEnabled();
+  return true;
 }
 
 export function getProWidgetKey(): string {

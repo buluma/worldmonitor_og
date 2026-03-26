@@ -1130,7 +1130,7 @@ canvas,
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 20px;
+  padding: 5px 10px;
   font-size: 11px;
   color: var(--text-dim);
   border-top: 1px solid var(--border);
@@ -1166,7 +1166,7 @@ canvas,
   letter-spacing: 2px;
 }
 .site-footer nav {
-  display: flex;
+  display: none !important;
   gap: 16px;
 }
 .site-footer a {
@@ -15339,7 +15339,7 @@ a.prediction-link:hover {
 
 /* Pro early-access banner */
 .pro-banner {
-  display: flex;
+  display: none !important;
   align-items: center;
   justify-content: center;
   gap: 12px;
@@ -19282,6 +19282,7 @@ body.has-breaking-alert .panels-grid {
    Community Discussion Widget — Floating Pill
    ============================================================ */
 .community-widget {
+  display: none !important;
   position: fixed;
   bottom: 24px;
   right: 24px;
