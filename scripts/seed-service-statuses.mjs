@@ -12,8 +12,10 @@ import { loadEnvFile, CHROME_UA, getRedisCredentials, logSeedResult, extendExist
 
 loadEnvFile(import.meta.url);
 
-const RPC_URL = 'https://api.worldmonitor.app/api/infrastructure/v1/list-service-statuses';
+const rpcBaseUrl = String(process.env.WM_RPC_BASE_URL || 'https://api.worldmonitor.app').replace(/\/$/, '');
+const RPC_URL = `${rpcBaseUrl}/api/infrastructure/v1/list-service-statuses`;
 const CANONICAL_KEY = 'infra:service-statuses:v1';
+const RPC_ORIGIN = String(process.env.WM_RPC_ORIGIN || rpcBaseUrl.replace(/\/api$/, ''));
 
 async function warmPing() {
   const startMs = Date.now();
@@ -28,7 +30,7 @@ async function warmPing() {
       headers: {
         'Content-Type': 'application/json',
         'User-Agent': CHROME_UA,
-        Origin: 'https://worldmonitor.app',
+        Origin: RPC_ORIGIN,
       },
       body: '{}',
       signal: AbortSignal.timeout(60_000),

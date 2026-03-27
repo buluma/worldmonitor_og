@@ -1,0 +1,17 @@
+FROM node:22-alpine
+
+# curl is used by the cron wrapper for cache priming; coreutils provides timeout.
+# python3/make/g++ cover native module builds during npm ci on arm64/macOS hosts.
+RUN apk add --no-cache curl coreutils python3 make g++
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts
+
+COPY scripts/package.json scripts/package-lock.json ./scripts/
+RUN npm ci --prefix scripts --omit=dev
+
+COPY . .
+
+CMD ["tail", "-f", "/dev/null"]

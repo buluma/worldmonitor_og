@@ -83,6 +83,64 @@ services:
       - redis
     restart: unless-stopped
 
+  seed-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.seeder
+    image: worldmonitor-seeder:latest
+    container_name: worldmonitor-seeder
+    profiles:
+      - scheduler
+    env_file:
+      - .env.local
+    environment:
+      TZ: "${TZ:-UTC}"
+      UPSTASH_REDIS_REST_URL: "http://redis-rest:80"
+      UPSTASH_REDIS_REST_TOKEN: "${REDIS_TOKEN:-wm-local-token}"
+      WM_APP_URL: "http://worldmonitor:8080"
+      WM_RPC_BASE_URL: "http://worldmonitor:8080"
+      WM_CRON_LOG_FILE: "/tmp/wm-seeders.log"
+      SEEDER_TIMEOUT_SEC: "${SEEDER_TIMEOUT_SEC:-900}"
+    command: ["tail", "-f", "/dev/null"]
+    depends_on:
+      worldmonitor:
+        condition: service_started
+      redis-rest:
+        condition: service_started
+    restart: unless-stopped
+    labels:
+      ofelia.enabled: "true"
+      ofelia.job-exec.frequent.schedule: "0 */15 * * * *"
+      ofelia.job-exec.frequent.command: "/app/scripts/wm-cron-seeder.sh frequent"
+      ofelia.job-exec.frequent.no-overlap: "true"
+      ofelia.job-exec.hourly.schedule: "0 7 * * * *"
+      ofelia.job-exec.hourly.command: "/app/scripts/wm-cron-seeder.sh hourly"
+      ofelia.job-exec.hourly.no-overlap: "true"
+      ofelia.job-exec.sixhourly.schedule: "0 17 */6 * * *"
+      ofelia.job-exec.sixhourly.command: "/app/scripts/wm-cron-seeder.sh sixhourly"
+      ofelia.job-exec.sixhourly.no-overlap: "true"
+      ofelia.job-exec.daily.schedule: "0 32 2 * * *"
+      ofelia.job-exec.daily.command: "/app/scripts/wm-cron-seeder.sh daily"
+      ofelia.job-exec.daily.no-overlap: "true"
+      ofelia.job-exec.weekly.schedule: "0 45 3 * * 6"
+      ofelia.job-exec.weekly.command: "/app/scripts/wm-cron-seeder.sh weekly"
+      ofelia.job-exec.weekly.no-overlap: "true"
+
+  scheduler:
+    image: mcuadros/ofelia:latest
+    container_name: worldmonitor-scheduler
+    profiles:
+      - scheduler
+    command: ["daemon", "--docker"]
+    environment:
+      TZ: "${TZ:-UTC}"
+    depends_on:
+      seed-runner:
+        condition: service_started
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+
 # Docker secrets — uncomment and point to your secret files.
 # Example: echo "gsk_abc123" > secrets/groq_api_key.txt
 # secrets:
