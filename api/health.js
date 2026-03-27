@@ -210,6 +210,7 @@ const ON_DEMAND_KEYS = new Set([
 const EMPTY_DATA_OK_KEYS = new Set([
   'notamClosures', 'faaDelays', 'gpsjam', 'positiveGeoEvents', 'weatherAlerts',
   'earningsCalendar', 'econCalendar', 'cotPositioning',
+  'usniFleet', // usniFleetStale covers the fallback; relay outages → WARN not CRIT
 ]);
 
 // In local Docker/self-hosted mode, a large subset of feeds are optional or
