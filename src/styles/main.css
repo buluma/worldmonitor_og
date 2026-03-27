@@ -833,6 +833,7 @@ canvas,
 }
 
 .download-wrapper {
+  display: none !important;
   position: relative;
 }
 
