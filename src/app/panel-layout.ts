@@ -82,15 +82,25 @@ import { t } from '@/services/i18n';
 import { getCurrentTheme } from '@/utils';
 import { trackCriticalBannerAction } from '@/services/analytics';
 import { getSecretState } from '@/services/runtime-config';
+import { getAuthState, subscribeAuthState } from '@/services/auth-state';
+import type { AuthSession } from '@/services/auth-state';
 import { CustomWidgetPanel } from '@/components/CustomWidgetPanel';
 import { openWidgetChatModal } from '@/components/WidgetChatModal';
-import { hasPremiumAccess } from '@/services/panel-gating';
+import { PanelGateReason, getPanelGateReason, hasPremiumAccess } from '@/services/panel-gating';
+import type { Panel } from '@/components/Panel';
 import { isProUser, loadWidgets, saveWidget } from '@/services/widget-store';
 import type { CustomWidgetSpec } from '@/services/widget-store';
 import { McpDataPanel } from '@/components/McpDataPanel';
 import { openMcpConnectModal } from '@/components/McpConnectModal';
 import { loadMcpPanels, saveMcpPanel } from '@/services/mcp-store';
 import type { McpPanelSpec } from '@/services/mcp-store';
+
+const WEB_PREMIUM_PANELS = new Set([
+  'stock-analysis',
+  'stock-backtest',
+  'daily-market-brief',
+  'market-implications',
+]);
 
 export interface PanelLayoutManagerCallbacks {
   openCountryStory: (code: string, name: string) => void;
@@ -109,6 +119,8 @@ export class PanelLayoutManager implements AppModule {
   private criticalBannerEl: HTMLElement | null = null;
   private aviationCommandBar: AviationCommandBar | null = null;
   private readonly applyTimeRangeFilterDebounced: (() => void) & { cancel(): void };
+  private unsubscribeAuth: (() => void) | null = null;
+  private proBlockUnsubscribe: (() => void) | null = null;
 
   constructor(ctx: AppContext, callbacks: PanelLayoutManagerCallbacks) {
     this.ctx = ctx;
@@ -120,12 +132,19 @@ export class PanelLayoutManager implements AppModule {
 
   init(): void {
     this.renderLayout();
+    this.unsubscribeAuth = subscribeAuthState((state) => {
+      this.updatePanelGating(state);
+    });
     this.fetchGitHubStars();
   }
 
   destroy(): void {
     clearAllPendingCalls();
     this.applyTimeRangeFilterDebounced.cancel();
+    this.unsubscribeAuth?.();
+    this.unsubscribeAuth = null;
+    this.proBlockUnsubscribe?.();
+    this.proBlockUnsubscribe = null;
     this.panelDragCleanupHandlers.forEach((cleanup) => cleanup());
     this.panelDragCleanupHandlers = [];
     if (this.criticalBannerEl) {
@@ -149,6 +168,31 @@ export class PanelLayoutManager implements AppModule {
     this.ctx.panels['airline-intel']?.destroy();
 
     window.removeEventListener('resize', this.ensureCorrectZones);
+  }
+
+  private updatePanelGating(state: AuthSession): void {
+    for (const [key, panel] of Object.entries(this.ctx.panels)) {
+      const isPremium = WEB_PREMIUM_PANELS.has(key);
+      const reason = getPanelGateReason(state, isPremium);
+
+      if (reason === PanelGateReason.NONE) {
+        (panel as Panel).unlockPanel();
+      } else {
+        const onAction = this.getGateAction(reason);
+        (panel as Panel).showGatedCta(reason, onAction);
+      }
+    }
+  }
+
+  private getGateAction(reason: PanelGateReason): () => void {
+    switch (reason) {
+      case PanelGateReason.ANONYMOUS:
+        return () => this.ctx.authModal?.open();
+      case PanelGateReason.FREE_TIER:
+        return () => window.open('https://worldmonitor.app/pro', '_blank');
+      default:
+        return () => {};
+    }
   }
 
   private async fetchGitHubStars(): Promise<void> {
