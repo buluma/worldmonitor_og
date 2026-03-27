@@ -1,7 +1,7 @@
 import type { PanelConfig, MapLayers, DataSourceId } from '@/types';
 import { SITE_VARIANT } from './variant';
 // boundary-ignore: isDesktopRuntime is a pure env probe with no service dependencies
-import { isDesktopRuntime } from '@/services/runtime';
+import { isDesktopRuntime, isSelfHostedWebRuntime } from '@/services/runtime';
 // boundary-ignore: getSecretState is a pure env/keychain probe with no service dependencies
 import { getSecretState } from '@/services/runtime-config';
 
@@ -393,8 +393,8 @@ const FINANCE_PANELS: Record<string, PanelConfig> = {
   'windy-webcams': { name: 'Windy Live Webcam', enabled: false, priority: 2 },
   insights: { name: 'AI Market Insights', enabled: true, priority: 1 },
   markets: { name: 'Live Markets', enabled: true, priority: 1 },
-  'stock-analysis': { name: 'Premium Stock Analysis', enabled: true, priority: 1, premium: 'locked' },
-  'stock-backtest': { name: 'Premium Backtesting', enabled: true, priority: 1, premium: 'locked' },
+  'stock-analysis': { name: 'Stock Analysis', enabled: true, priority: 1, premium: 'locked' },
+  'stock-backtest': { name: 'Backtesting', enabled: true, priority: 1, premium: 'locked' },
   'daily-market-brief': { name: 'Daily Market Brief', enabled: true, priority: 1, premium: 'locked' },
   'markets-news': { name: 'Markets News', enabled: true, priority: 2 },
   forex: { name: 'Forex & Currencies', enabled: true, priority: 1 },
@@ -923,6 +923,7 @@ export const FREE_MAX_SOURCES = 80;
  */
 export function isPanelEntitled(key: string, config: PanelConfig, isPro = false): boolean {
   if (!config.premium) return true;
+  if (isSelfHostedWebRuntime()) return true;
   const apiKeyPanels = ['stock-analysis', 'stock-backtest', 'daily-market-brief', 'market-implications'];
   if (apiKeyPanels.includes(key)) {
     return getSecretState('WORLDMONITOR_API_KEY').present || isPro;

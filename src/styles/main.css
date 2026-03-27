@@ -61,6 +61,11 @@
   --font-body: var(--font-body-base);
 }
 
+/* System font selection via data-font attribute (avoids inline style specificity issues with RTL) */
+[data-font="system"] {
+  --font-body-base: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
 [dir="rtl"] {
   --font-body: 'Tajawal', 'Geeza Pro', 'SF Arabic', 'Tahoma', var(--font-body-base);
 }
@@ -6745,8 +6750,12 @@ a.prediction-link:hover {
   padding-top: 8px;
 }
 
+.panels-counter {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
 .panels-status {
-  margin-right: auto;
   min-height: 14px;
   font-size: 11px;
   color: var(--green);
@@ -6754,10 +6763,16 @@ a.prediction-link:hover {
   transition: opacity 0.15s ease;
 }
 
+.panels-counter + .panels-status {
+  margin-right: auto;
+}
+
 .panels-status.visible {
   opacity: 1;
 }
 
+.panels-select-all,
+.panels-select-none,
 .panels-save-layout,
 .panels-reset-layout {
   padding: 6px 12px;
@@ -6787,6 +6802,8 @@ a.prediction-link:hover {
   cursor: default;
 }
 
+.panels-select-all:hover,
+.panels-select-none:hover,
 .panels-reset-layout:hover {
   border-color: var(--text-dim);
 }

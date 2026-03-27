@@ -29,13 +29,13 @@ function list(items: string[], cssClass: string): string {
 
 export class StockAnalysisPanel extends Panel {
   constructor() {
-    super({ id: 'stock-analysis', title: 'Premium Stock Analysis', infoTooltip: t('components.stockAnalysis.infoTooltip'), premium: 'locked' });
+    super({ id: 'stock-analysis', title: 'Stock Analysis', infoTooltip: t('components.stockAnalysis.infoTooltip'), premium: 'locked' });
   }
 
   public renderAnalyses(items: StockAnalysisResult[], historyBySymbol: StockAnalysisHistory = {}, source: 'live' | 'cached' = 'live'): void {
     if (items.length === 0) {
       this.setDataBadge('unavailable');
-      this.showRetrying('No premium stock analyses available yet.');
+      this.showRetrying('No stock analyses available yet.');
       return;
     }
 

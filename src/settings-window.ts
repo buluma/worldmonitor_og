@@ -5,6 +5,7 @@
 import type { PanelConfig } from '@/types';
 import { DEFAULT_PANELS, STORAGE_KEYS, ALL_PANELS, VARIANT_DEFAULTS, getEffectivePanelConfig, isPanelEntitled, FREE_MAX_PANELS } from '@/config';
 import { isProUser } from '@/services/widget-store';
+import { hasPremiumAccess } from '@/services/panel-gating';
 import { SITE_VARIANT } from '@/config/variant';
 import { loadFromStorage, saveToStorage } from '@/utils';
 import { t } from '@/services/i18n';
@@ -48,9 +49,9 @@ export function initSettingsWindow(): void {
     const panelHtml = panelEntries
       .map(
         ([key, panel]) => `
-        <div class="panel-toggle-item ${panel.enabled ? 'active' : ''}" data-panel="${key}">
+        <div class="panel-toggle-item ${panel.enabled ? 'active' : ''}" data-panel="${escapeHtml(key)}">
           <div class="panel-toggle-checkbox">${panel.enabled ? '✓' : ''}</div>
-          <span class="panel-toggle-label">${getLocalizedPanelName(key, panel.name)}</span>
+          <span class="panel-toggle-label">${escapeHtml(getLocalizedPanelName(key, panel.name))}</span>
         </div>
       `
       )
@@ -65,7 +66,7 @@ export function initSettingsWindow(): void {
           const config = panelSettings[panelKey];
           if (config) {
             if (!config.enabled && !isPanelEntitled(panelKey, ALL_PANELS[panelKey] ?? config, isProUser())) return;
-            if (!config.enabled && !isProUser()) {
+            if (!config.enabled && !hasPremiumAccess()) {
               const enabledCount = Object.entries(panelSettings).filter(([k, p]) => p.enabled && !k.startsWith('cw-')).length;
               if (enabledCount >= FREE_MAX_PANELS) return;
             }

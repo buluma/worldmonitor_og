@@ -126,6 +126,19 @@ function isWorldMonitorWebHost(hostname: string): boolean {
     || hostname.endsWith('.worldmonitor.app');
 }
 
+export function isSelfHostedWebRuntime(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  if (isDesktopRuntime()) {
+    return false;
+  }
+
+  const hostname = window.location?.hostname ?? '';
+  return Boolean(hostname) && !isWorldMonitorWebHost(hostname);
+}
+
 export function getConfiguredWebApiBaseUrl(): string {
   if (WS_API_URL) {
     return normalizeBaseUrl(WS_API_URL);

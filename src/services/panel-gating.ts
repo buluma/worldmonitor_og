@@ -1,5 +1,6 @@
 import type { AuthSession } from './auth-state';
 import { getSecretState } from './runtime-config';
+import { isSelfHostedWebRuntime } from './runtime';
 import { isProUser } from './widget-store';
 
 export enum PanelGateReason {
@@ -13,6 +14,7 @@ export enum PanelGateReason {
  * Covers all access paths: desktop API key, tester keys (wm-pro-key / wm-widget-key), Clerk Pro.
  */
 export function hasPremiumAccess(authState?: AuthSession): boolean {
+  if (isSelfHostedWebRuntime()) return true;
   if (getSecretState('WORLDMONITOR_API_KEY').present) return true;
   if (isProUser()) return true;
   if (authState?.user?.role === 'pro') return true;

@@ -16,7 +16,7 @@ function fmtPct(value: number): string {
 
 export class StockBacktestPanel extends Panel {
   constructor() {
-    super({ id: 'stock-backtest', title: 'Premium Backtesting', infoTooltip: t('components.stockBacktest.infoTooltip'), premium: 'locked' });
+    super({ id: 'stock-backtest', title: 'Backtesting', infoTooltip: t('components.stockBacktest.infoTooltip'), premium: 'locked' });
   }
 
   public renderBacktests(items: StockBacktestResult[], source: 'live' | 'cached' = 'live'): void {
@@ -31,7 +31,7 @@ export class StockBacktestPanel extends Panel {
     const html = `
       <div style="display:flex;flex-direction:column;gap:12px">
         <div style="font-size:12px;color:var(--text-dim);line-height:1.5">
-          Historical replay of the premium stock-analysis signal engine over recent daily bars.
+          Historical replay of the stock-analysis signal engine over recent daily bars.
         </div>
         ${items.map((item) => `
           <section style="border:1px solid var(--border);background:rgba(255,255,255,0.03);padding:14px;display:flex;flex-direction:column;gap:10px">

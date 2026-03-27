@@ -65,6 +65,7 @@ import { EventHandlerManager } from '@/app/event-handlers';
 import { resolveUserRegion, resolvePreciseUserCoordinates, type PreciseCoordinates } from '@/utils/user-location';
 import { showProBanner } from '@/components/ProBanner';
 import { initAuthState, subscribeAuthState } from '@/services/auth-state';
+import { hasPremiumAccess } from '@/services/panel-gating';
 import {
   CorrelationEngine,
   militaryAdapter,
@@ -939,7 +940,7 @@ export class App {
    * Safe to call multiple times (idempotent) — e.g. on auth state changes.
    */
   private enforceFreeTierLimits(): void {
-    if (isProUser()) return;
+    if (hasPremiumAccess()) return;
 
     // --- Panel limit ---
     const panelSettings = loadFromStorage<Record<string, PanelConfig>>(STORAGE_KEYS.panels, {});
@@ -1100,25 +1101,25 @@ export class App {
         'stock-analysis',
         () => this.dataLoader.loadStockAnalysis(),
         REFRESH_INTERVALS.stockAnalysis,
-        () => (getSecretState('WORLDMONITOR_API_KEY').present || getAuthState().user?.role === 'pro') && this.isPanelNearViewport('stock-analysis'),
+        () => hasPremiumAccess() && this.isPanelNearViewport('stock-analysis'),
       );
       this.refreshScheduler.scheduleRefresh(
         'daily-market-brief',
         () => this.dataLoader.loadDailyMarketBrief(),
         REFRESH_INTERVALS.dailyMarketBrief,
-        () => (getSecretState('WORLDMONITOR_API_KEY').present || getAuthState().user?.role === 'pro') && this.isPanelNearViewport('daily-market-brief'),
+        () => hasPremiumAccess() && this.isPanelNearViewport('daily-market-brief'),
       );
       this.refreshScheduler.scheduleRefresh(
         'stock-backtest',
         () => this.dataLoader.loadStockBacktest(),
         REFRESH_INTERVALS.stockBacktest,
-        () => (getSecretState('WORLDMONITOR_API_KEY').present || getAuthState().user?.role === 'pro') && this.isPanelNearViewport('stock-backtest'),
+        () => hasPremiumAccess() && this.isPanelNearViewport('stock-backtest'),
       );
       this.refreshScheduler.scheduleRefresh(
         'market-implications',
         () => this.dataLoader.loadMarketImplications(),
         REFRESH_INTERVALS.marketImplications,
-        () => (getSecretState('WORLDMONITOR_API_KEY').present || isProUser()) && this.isPanelNearViewport('market-implications'),
+        () => hasPremiumAccess() && this.isPanelNearViewport('market-implications'),
       );
     }
 

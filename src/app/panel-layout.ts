@@ -84,6 +84,7 @@ import { trackCriticalBannerAction } from '@/services/analytics';
 import { getSecretState } from '@/services/runtime-config';
 import { CustomWidgetPanel } from '@/components/CustomWidgetPanel';
 import { openWidgetChatModal } from '@/components/WidgetChatModal';
+import { hasPremiumAccess } from '@/services/panel-gating';
 import { isProUser, loadWidgets, saveWidget } from '@/services/widget-store';
 import type { CustomWidgetSpec } from '@/services/widget-store';
 import { McpDataPanel } from '@/components/McpDataPanel';
@@ -603,7 +604,7 @@ export class PanelLayoutManager implements AppModule {
     this.createPanel('heatmap', () => new HeatmapPanel());
     this.createPanel('markets', () => new MarketPanel());
     const stockAnalysisPanel = this.createPanel('stock-analysis', () => new StockAnalysisPanel());
-    if (stockAnalysisPanel && !getSecretState('WORLDMONITOR_API_KEY').present && !isProUser()) {
+    if (stockAnalysisPanel && !hasPremiumAccess()) {
       stockAnalysisPanel.showLocked([
         'AI stock briefs with technical + news synthesis',
         'Trend scoring from MA, MACD, RSI, and volume structure',
@@ -611,7 +612,7 @@ export class PanelLayoutManager implements AppModule {
       ]);
     }
     const stockBacktestPanel = this.createPanel('stock-backtest', () => new StockBacktestPanel());
-    if (stockBacktestPanel && !getSecretState('WORLDMONITOR_API_KEY').present && !isProUser()) {
+    if (stockBacktestPanel && !hasPremiumAccess()) {
       stockBacktestPanel.showLocked([
         'Historical replay of premium stock-analysis signals',
         'Win-rate, accuracy, and simulated-return metrics',
@@ -811,17 +812,18 @@ export class PanelLayoutManager implements AppModule {
 
     const _wmKeyPresent = getSecretState('WORLDMONITOR_API_KEY').present;
     const _lockPanels = this.ctx.isDesktopApp && !_wmKeyPresent && !isProUser();
+    const _financePremiumUnlocked = hasPremiumAccess();
 
     this.lazyPanel('daily-market-brief', () =>
       import('@/components/DailyMarketBriefPanel').then(m => new m.DailyMarketBriefPanel()),
       undefined,
-      (!_wmKeyPresent && !isProUser()) ? ['Pre-market watchlist priorities', 'Action plan for the session', 'Risk watch tied to current finance headlines'] : undefined,
+      !_financePremiumUnlocked ? ['Pre-market watchlist priorities', 'Action plan for the session', 'Risk watch tied to current finance headlines'] : undefined,
     );
 
     this.lazyPanel('market-implications', () =>
       import('@/components/MarketImplicationsPanel').then(m => new m.MarketImplicationsPanel()),
       undefined,
-      (!_wmKeyPresent && !isProUser()) ? [
+      !_financePremiumUnlocked ? [
         'AI-generated trade signals from live geopolitical world state',
         'Direction badges (LONG/SHORT/HEDGE) with confidence ratings',
         'Updated each forecast cycle with fresh market context',

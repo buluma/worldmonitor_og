@@ -101,6 +101,9 @@ const STANDALONE_KEYS = {
   hormuzTracker:            'supply_chain:hormuz_tracker:v1',
   simulationPackageLatest:  'forecast:simulation-package:latest',
   simulationOutcomeLatest:  'forecast:simulation-outcome:latest',
+  shippingStress:           'supply_chain:shipping_stress:v1',
+  diseaseOutbreaks:         'health:disease-outbreaks:v1',
+  socialVelocity:           'intelligence:social:reddit:v1',
 };
 
 const SEED_META = {

@@ -1,6 +1,7 @@
 import { FEEDS, INTEL_SOURCES, SOURCE_REGION_MAP } from '@/config/feeds';
 import { PANEL_CATEGORY_MAP, ALL_PANELS, VARIANT_DEFAULTS, getEffectivePanelConfig, isPanelEntitled, FREE_MAX_PANELS } from '@/config/panels';
 import { isProUser } from '@/services/widget-store';
+import { hasPremiumAccess } from '@/services/panel-gating';
 import { SITE_VARIANT } from '@/config/variant';
 import { t } from '@/services/i18n';
 import type { MapProvider } from '@/config/basemap';
@@ -102,6 +103,16 @@ export class UnifiedSettings {
 
       if (target.closest('.panels-save-layout')) {
         this.savePanelChanges();
+        return;
+      }
+
+      if (target.closest('.panels-select-all')) {
+        this.setVisiblePanelsEnabled(true);
+        return;
+      }
+
+      if (target.closest('.panels-select-none')) {
+        this.setVisiblePanelsEnabled(false);
         return;
       }
 
@@ -242,7 +253,10 @@ export class UnifiedSettings {
           </div>
           <div class="panel-toggle-grid" id="usPanelToggles"></div>
           <div class="panels-footer">
+            <span class="panels-counter" id="usPanelsCounter"></span>
             <span class="panels-status" id="usPanelsStatus" aria-live="polite"></span>
+            <button class="panels-select-all">${t('common.selectAll')}</button>
+            <button class="panels-select-none">${t('common.selectNone')}</button>
             <button class="panels-save-layout">${t('modals.story.save')}</button>
             <button class="panels-reset-layout" title="${t('header.resetLayoutTooltip')}" aria-label="${t('header.resetLayoutTooltip')}">${t('header.resetLayout')}</button>
           </div>
@@ -366,7 +380,7 @@ export class UnifiedSettings {
         <div class="panel-toggle-item ${panel.enabled && !locked ? 'active' : ''}${changed ? ' changed' : ''}${locked ? ' pro-locked' : ''}" data-panel="${escapeHtml(key)}" aria-pressed="${panel.enabled && !locked}" ${locked ? 'data-pro-locked="1"' : ''}>
           <div class="panel-toggle-checkbox">${panel.enabled && !locked ? '\u2713' : ''}${locked ? '\uD83D\uDD12' : ''}</div>
           <span class="panel-toggle-label">${escapeHtml(displayName)}</span>
-          ${(locked || (ALL_PANELS[key] ?? panel).premium) ? '<span class="panel-toggle-pro-badge">PRO</span>' : ''}
+          ${locked ? '<span class="panel-toggle-pro-badge">PRO</span>' : ''}
         </div>
       `;
     }).join('');
@@ -401,7 +415,7 @@ export class UnifiedSettings {
     const panel = this.draftPanelSettings[key];
     if (!panel) return;
     if (!panel.enabled && !isPanelEntitled(key, ALL_PANELS[key] ?? panel, isProUser())) return;
-    if (!panel.enabled && !isProUser()) {
+    if (!panel.enabled && !hasPremiumAccess()) {
       const enabledCount = Object.entries(this.draftPanelSettings).filter(([k, p]) => p.enabled && !k.startsWith('cw-')).length;
       if (enabledCount >= FREE_MAX_PANELS) {
         showToast(t('modals.settingsWindow.freePanelLimit', { max: String(FREE_MAX_PANELS) }));
@@ -409,6 +423,31 @@ export class UnifiedSettings {
       }
     }
     panel.enabled = !panel.enabled;
+    this.panelsJustSaved = false;
+    this.renderPanelsTab();
+  }
+
+  private setVisiblePanelsEnabled(enabled: boolean): void {
+    const eligibleKeys = this.getVisiblePanelEntries()
+      .filter(([key, panel]) => enabled ? isPanelEntitled(key, ALL_PANELS[key] ?? panel, isProUser()) : true)
+      .map(([key]) => key)
+      .filter(key => !key.startsWith('cw-'));
+
+    if (enabled && !hasPremiumAccess()) {
+      const currentlyEnabled = Object.entries(this.draftPanelSettings).filter(([key, panel]) => panel.enabled && !key.startsWith('cw-')).length;
+      const newlyEnabled = eligibleKeys.filter(key => !this.draftPanelSettings[key]?.enabled).length;
+      if (currentlyEnabled + newlyEnabled > FREE_MAX_PANELS) {
+        showToast(t('modals.settingsWindow.freePanelLimit', { max: String(FREE_MAX_PANELS) }));
+        return;
+      }
+    }
+
+    for (const key of eligibleKeys) {
+      const panel = this.draftPanelSettings[key];
+      if (!panel) continue;
+      panel.enabled = enabled;
+    }
+
     this.panelsJustSaved = false;
     this.renderPanelsTab();
   }
@@ -428,12 +467,22 @@ export class UnifiedSettings {
   }
 
   private updatePanelsFooter(): void {
+    const counter = this.overlay.querySelector<HTMLElement>('#usPanelsCounter');
     const status = this.overlay.querySelector<HTMLElement>('#usPanelsStatus');
     const saveButton = this.overlay.querySelector<HTMLButtonElement>('.panels-save-layout');
     const hasPendingChanges = this.hasPendingPanelChanges();
 
     if (saveButton) {
       saveButton.disabled = !hasPendingChanges;
+    }
+
+    if (counter) {
+      const countableKeys = Object.keys(this.draftPanelSettings).filter(
+        key => !key.startsWith('cw-') && (key !== 'runtime-config' || this.config.isDesktopApp),
+      );
+      const enabledTotal = countableKeys.filter(key => this.draftPanelSettings[key]?.enabled).length;
+      const total = countableKeys.length;
+      counter.textContent = t('header.panelsEnabled', { enabled: String(enabledTotal), total: String(total) });
     }
 
     if (status) {

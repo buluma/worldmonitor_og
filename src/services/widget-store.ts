@@ -1,5 +1,6 @@
 import { loadFromStorage, saveToStorage } from '@/utils';
 import { sanitizeWidgetHtml } from '@/utils/widget-sanitizer';
+import { getAuthState } from '@/services/auth-state';
 
 const STORAGE_KEY = 'wm-custom-widgets';
 const PANEL_SPANS_KEY = 'worldmonitor-panel-spans';
@@ -8,6 +9,13 @@ const MAX_WIDGETS = 10;
 const MAX_HISTORY = 10;
 const MAX_HTML_CHARS = 50_000;
 const MAX_HTML_CHARS_PRO = 80_000;
+const ENV = (() => {
+  try {
+    return import.meta.env ?? {};
+  } catch {
+    return {} as Record<string, string | boolean | undefined>;
+  }
+})();
 
 function proHtmlKey(id: string): string {
   return `wm-pro-html-${id}`;
@@ -166,8 +174,14 @@ export function isProWidgetEnabled(): boolean {
   return !!getKey('wm-pro-key');
 }
 
+export function isPremiumDevOverrideEnabled(): boolean {
+  return ENV.DEV === true && ENV.VITE_UNLOCK_ALL_PREMIUM === 'true';
+}
+
 export function isProUser(): boolean {
-  return true;
+  if (isPremiumDevOverrideEnabled()) return true;
+  if (getAuthState().user?.role === 'pro') return true;
+  return getBrowserTesterKeys().length > 0;
 }
 
 export function getProWidgetKey(): string {

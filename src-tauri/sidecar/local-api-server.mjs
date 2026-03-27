@@ -95,7 +95,12 @@ globalThis.fetch = async function ipv4Fetch(input, init) {
   let url;
   try { url = new URL(typeof input === 'string' ? input : input.url); } catch { return _originalFetch(input, init); }
   if (url.protocol !== 'https:' && url.protocol !== 'http:') return _originalFetch(input, init);
-  if (url.hostname.includes('finance.yahoo.com')) await sidecarYahooGate();
+  if (url.hostname.includes('finance.yahoo.com')) {
+    await sidecarYahooGate();
+    // Yahoo chart endpoints are more sensitive to the sidecar's forced-IPv4
+    // transport than to Node's built-in fetch. Let undici choose the route.
+    return _originalFetch(input, init);
+  }
   await acquireUpstreamSlot();
   try {
     const mod = url.protocol === 'https:' ? https : http;
@@ -454,10 +459,27 @@ const cloudPreferredExact = !process.env.WS_RELAY_URL
   ? new Set(['/api/bootstrap'])
   : new Set();
 
+// Self-hosted Docker mode serves handlers directly instead of going through the
+// cloud gateway. Premium finance requests still expect the premium header, so
+// the local API injects the configured key server-side instead of exposing the
+// secret to the browser bundle.
+const LOCAL_PREMIUM_AUTH_PATHS = new Set([
+  '/api/market/v1/analyze-stock',
+  '/api/market/v1/get-stock-analysis-history',
+  '/api/market/v1/backtest-stock',
+  '/api/market/v1/list-stored-stock-backtests',
+]);
+
 function isCloudPreferred(pathname) {
   if (cloudPreferred.has(pathname)) return true;
   if (cloudPreferredExact.has(pathname)) return true;
   return cloudPreferredPrefixes.some(p => pathname.startsWith(p));
+}
+
+function getLocalPremiumKey(context, requestPath) {
+  if (context.mode !== 'docker') return '';
+  if (!LOCAL_PREMIUM_AUTH_PATHS.has(requestPath)) return '';
+  return String(process.env.WORLDMONITOR_API_KEY || '').trim();
 }
 
 const TRAFFIC_LOG_MAX = 200;
@@ -1408,6 +1430,10 @@ async function dispatch(requestUrl, req, routes, context) {
     const body = ['GET', 'HEAD'].includes(req.method) ? undefined : await readBody(req);
     const hdrs = toHeaders(req.headers, { stripOrigin: true });
     hdrs.set('Origin', `http://127.0.0.1:${context.port}`);
+    const localPremiumKey = getLocalPremiumKey(context, requestUrl.pathname);
+    if (localPremiumKey && !hdrs.has('X-WorldMonitor-Key') && !hdrs.has('Authorization')) {
+      hdrs.set('X-WorldMonitor-Key', localPremiumKey);
+    }
     const request = new Request(requestUrl.toString(), {
       method: req.method,
       headers: hdrs,
