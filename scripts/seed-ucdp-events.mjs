@@ -53,6 +53,33 @@ function buildVersionCandidates() {
   return [...new Set([`${year}.1`, `${year - 1}.1`, '25.1', '24.1'])];
 }
 
+function isAuthError(err) {
+  const msg = String(err?.message || '');
+  return /API token required|UCDP auth required|HTTP 401|HTTP 403/i.test(msg);
+}
+
+async function extendExistingTtl(redisUrl, redisToken) {
+  try {
+    const r1 = await fetch(redisUrl, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${redisToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(['EXPIRE', REDIS_KEY, 86400]),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!r1.ok) console.warn(`  EXPIRE ${REDIS_KEY} failed: HTTP ${r1.status}`);
+    const r2 = await fetch(redisUrl, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${redisToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(['EXPIRE', 'seed-meta:conflict:ucdp-events', 604800]),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!r2.ok) console.warn(`  EXPIRE seed-meta failed: HTTP ${r2.status}`);
+    if (r1.ok || r2.ok) console.log(`  Extended TTL on existing UCDP data`);
+  } catch (e) {
+    console.warn(`  TTL extension failed: ${e.message}`);
+  }
+}
+
 async function fetchGedPage(version, page, token) {
   const headers = { Accept: 'application/json', 'User-Agent': CHROME_UA };
   if (token) headers['x-ucdp-access-token'] = token;
@@ -60,6 +87,10 @@ async function fetchGedPage(version, page, token) {
     `https://ucdpapi.pcr.uu.se/api/gedevents/${version}?pagesize=${UCDP_PAGE_SIZE}&page=${page}`,
     { headers, signal: AbortSignal.timeout(90_000) },
   );
+  if (resp.status === 401 || resp.status === 403) {
+    const text = await resp.text().catch(() => '');
+    throw new Error(`UCDP auth required (${resp.status})${text ? ` — ${String(text).slice(0, 160)}` : ''}`);
+  }
   if (!resp.ok) throw new Error(`UCDP GED API error (${version}, page ${page}): ${resp.status}`);
   return resp.json();
 }
@@ -113,6 +144,12 @@ async function main() {
   console.log(`  Redis Token: ${maskToken(redisToken)}`);
   console.log(`  UCDP Token: ${ucdpToken ? maskToken(ucdpToken) : '(none — unauthenticated)'}`);
   console.log();
+
+  if (!ucdpToken) {
+    console.log('  SKIPPED: UCDP_ACCESS_TOKEN not set');
+    await extendExistingTtl(redisUrl, redisToken);
+    process.exit(0);
+  }
 
   const { version, page0 } = await discoverVersion(ucdpToken);
   const totalPages = Math.max(1, Number(page0?.TotalPages) || 1);
@@ -183,23 +220,7 @@ async function main() {
   // Extend TTL on existing key instead so health stays OK.
   if (capped.length === 0) {
     console.warn(`  0 events after processing — extending existing key TTL (preserving last good data)`);
-    try {
-      const r1 = await fetch(redisUrl, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${redisToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(['EXPIRE', REDIS_KEY, 86400]),
-        signal: AbortSignal.timeout(5_000),
-      });
-      if (!r1.ok) console.warn(`  EXPIRE ${REDIS_KEY} failed: HTTP ${r1.status}`);
-      const r2 = await fetch(redisUrl, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${redisToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(['EXPIRE', 'seed-meta:conflict:ucdp-events', 604800]),
-        signal: AbortSignal.timeout(5_000),
-      });
-      if (!r2.ok) console.warn(`  EXPIRE seed-meta failed: HTTP ${r2.status}`);
-      if (r1.ok && r2.ok) console.log(`  Extended TTL on ${REDIS_KEY} and seed-meta`);
-    } catch (e) { console.warn(`  TTL extension failed: ${e.message}`); }
+    await extendExistingTtl(redisUrl, redisToken);
     process.exit(0);
   }
 
@@ -265,8 +286,17 @@ async function main() {
   console.log('\n=== Done ===');
 }
 
-main().catch(err => {
-  const _cause = err.cause ? ` (cause: ${err.cause.message || err.cause.code || err.cause})` : ''; console.error('FATAL:', (err.message || err) + _cause);
+main().catch(async (err) => {
+  loadEnvFile();
+  const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
+  const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (redisUrl && redisToken && isAuthError(err)) {
+    console.log(`SKIPPED: ${err.message || err}`);
+    await extendExistingTtl(redisUrl, redisToken);
+    process.exit(0);
+  }
+  const _cause = err.cause ? ` (cause: ${err.cause.message || err.cause.code || err.cause})` : '';
+  console.error('FATAL:', (err.message || err) + _cause);
   // Exit gracefully for cron — crashing restarts the container unnecessarily.
   // The health endpoint will flag stale data via seed-meta.
   process.exit(0);

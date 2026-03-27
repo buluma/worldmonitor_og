@@ -1,6 +1,15 @@
 #!/usr/bin/env node
 
-import { loadEnvFile, CHROME_UA, runSeed, writeExtraKeyWithMeta, sleep, resolveProxy, fredFetchJson } from './_seed-utils.mjs';
+import {
+  loadEnvFile,
+  CHROME_UA,
+  runSeed,
+  writeExtraKeyWithMeta,
+  sleep,
+  resolveProxy,
+  fredFetchJson,
+  fetchJsonWithCurlFallback,
+} from './_seed-utils.mjs';
 
 loadEnvFile(import.meta.url);
 
@@ -49,12 +58,18 @@ async function fetchEnergyPrices() {
       'sort[0][direction]': 'desc',
       length: '2',
     });
-    const resp = await fetch(`https://api.eia.gov${c.apiPath}?${params}`, {
-      headers: { Accept: 'application/json', 'User-Agent': CHROME_UA },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!resp.ok) { console.warn(`  EIA ${c.commodity}: HTTP ${resp.status}`); continue; }
-    const data = await resp.json();
+    let data;
+    try {
+      data = await fetchJsonWithCurlFallback(`https://api.eia.gov${c.apiPath}?${params}`, {
+        Accept: 'application/json',
+        'User-Agent': CHROME_UA,
+      });
+    } catch (err) {
+      const status = err?.status || err?.message?.match(/^HTTP (\d+)/)?.[1];
+      if (status) console.warn(`  EIA ${c.commodity}: HTTP ${status}`);
+      else console.warn(`  EIA ${c.commodity}: ${err.message || err}`);
+      continue;
+    }
     const rows = data.response?.data;
     if (!rows || rows.length === 0) continue;
     const current = rows[0];
@@ -93,12 +108,16 @@ async function fetchCapacityForSource(sourceCode, apiKey, startYear) {
     length: '5000',
     start: String(startYear),
   });
-  const resp = await fetch(
-    `https://api.eia.gov/v2/electricity/state-electricity-profiles/capability/data/?${params}`,
-    { headers: { Accept: 'application/json', 'User-Agent': CHROME_UA }, signal: AbortSignal.timeout(15_000) },
-  );
-  if (!resp.ok) return new Map();
-  const data = await resp.json();
+  let data;
+  try {
+    data = await fetchJsonWithCurlFallback(
+      `https://api.eia.gov/v2/electricity/state-electricity-profiles/capability/data/?${params}`,
+      { Accept: 'application/json', 'User-Agent': CHROME_UA },
+      15_000,
+    );
+  } catch {
+    return new Map();
+  }
   const rows = data.response?.data || [];
   const yearTotals = new Map();
   for (const row of rows) {
@@ -420,12 +439,10 @@ async function fetchCrudeInventories() {
     'sort[0][direction]': 'desc',
     length: '9', // fetch 9 so the oldest of 8 has a prior week for weeklyChangeMb
   });
-  const resp = await fetch(`https://api.eia.gov/v2/petroleum/stoc/wstk/data/?${params}`, {
-    headers: { Accept: 'application/json', 'User-Agent': CHROME_UA },
-    signal: AbortSignal.timeout(10_000),
+  const data = await fetchJsonWithCurlFallback(`https://api.eia.gov/v2/petroleum/stoc/wstk/data/?${params}`, {
+    Accept: 'application/json',
+    'User-Agent': CHROME_UA,
   });
-  if (!resp.ok) throw new Error(`EIA WCRSTUS1: HTTP ${resp.status}`);
-  const data = await resp.json();
   const rows = data.response?.data;
   if (!rows || rows.length === 0) throw new Error('EIA WCRSTUS1: no data rows');
 
@@ -474,12 +491,10 @@ async function fetchNatGasStorage() {
     'sort[0][direction]': 'desc',
     length: '9', // fetch 9 so the oldest of 8 has a prior week for weeklyChangeBcf
   });
-  const resp = await fetch(`https://api.eia.gov/v2/natural-gas/stor/wkly/data/?${params}`, {
-    headers: { Accept: 'application/json', 'User-Agent': CHROME_UA },
-    signal: AbortSignal.timeout(10_000),
+  const data = await fetchJsonWithCurlFallback(`https://api.eia.gov/v2/natural-gas/stor/wkly/data/?${params}`, {
+    Accept: 'application/json',
+    'User-Agent': CHROME_UA,
   });
-  if (!resp.ok) throw new Error(`EIA NW2_EPG0_SWO_R48_BCF: HTTP ${resp.status}`);
-  const data = await resp.json();
   const rows = data.response?.data;
   if (!rows || rows.length === 0) throw new Error('EIA NW2_EPG0_SWO_R48_BCF: no data rows');
 

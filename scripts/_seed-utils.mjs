@@ -317,7 +317,7 @@ export function resolveProxy() {
 
 // curl-based fetch; throws on non-2xx. Returns response body as string.
 export function curlFetch(url, proxyAuth, headers = {}) {
-  const args = ['-sS', '--compressed', '--max-time', '15', '-L'];
+  const args = ['-sS', '--compressed', '--globoff', '--max-time', '15', '-L'];
   if (proxyAuth) args.push('-x', `http://${proxyAuth}`);
   for (const [k, v] of Object.entries(headers)) args.push('-H', `${k}: ${v}`);
   args.push('-w', '\n%{http_code}');
@@ -335,6 +335,23 @@ export async function fredFetchJson(url, proxyAuth) {
   const r = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(10_000) });
   if (!r.ok) throw Object.assign(new Error(`HTTP ${r.status}`), { status: r.status });
   return r.json();
+}
+
+// Fetch JSON via native fetch, but fall back to curl on transport-level
+// failures seen on some hosts when undici cannot reach specific upstreams.
+export async function fetchJsonWithCurlFallback(url, headers = {}, timeoutMs = 10_000) {
+  try {
+    const resp = await fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
+    if (!resp.ok) throw Object.assign(new Error(`HTTP ${resp.status}`), { status: resp.status });
+    return resp.json();
+  } catch (err) {
+    if (err?.status) throw err;
+    const combined = `${err?.message || ''} ${err?.cause?.message || ''} ${err?.cause?.code || ''}`;
+    if (!/UND_ERR_|Connect Timeout Error|fetch failed|ECONNRESET|ENOTFOUND|ETIMEDOUT|EAI_AGAIN/i.test(combined)) {
+      throw err;
+    }
+    return JSON.parse(curlFetch(url, '', headers));
+  }
 }
 
 // ---------------------------------------------------------------------------

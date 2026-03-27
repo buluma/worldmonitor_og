@@ -1,7 +1,15 @@
 #!/usr/bin/env node
 
 import xlsx from 'xlsx';
-import { loadEnvFile, CHROME_UA, runSeed, readSeedSnapshot, getSharedFxRates, SHARED_FX_FALLBACKS } from './_seed-utils.mjs';
+import {
+  loadEnvFile,
+  CHROME_UA,
+  runSeed,
+  readSeedSnapshot,
+  getSharedFxRates,
+  SHARED_FX_FALLBACKS,
+  fetchJsonWithCurlFallback,
+} from './_seed-utils.mjs';
 
 loadEnvFile(import.meta.url);
 
@@ -190,12 +198,7 @@ async function fetchUS_EIA() {
     }
     const url = `https://api.eia.gov/v2/petroleum/pri/gnd/data/?api_key=${apiKey}&data[]=value&facets[series][]=EMM_EPMR_PTE_NUS_DPG&facets[series][]=EMD_EPD2DXL0_PTE_NUS_DPG&sort[0][column]=period&sort[0][direction]=desc&length=4`;
     console.log(`  [US] Fetching EIA: ${url.replace(/api_key=[^&]+/, 'api_key=***')}`);
-    const resp = await globalThis.fetch(url, {
-      headers: { 'User-Agent': CHROME_UA },
-      signal: AbortSignal.timeout(20000),
-    });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
+    const data = await fetchJsonWithCurlFallback(url, { 'User-Agent': CHROME_UA }, 20_000);
     const rows = data?.response?.data;
     if (!Array.isArray(rows) || rows.length === 0) return [];
 

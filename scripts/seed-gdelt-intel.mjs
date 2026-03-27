@@ -8,8 +8,12 @@ const CANONICAL_KEY = 'intelligence:gdelt-intel:v1';
 const CACHE_TTL = 86400; // 24h — intentionally much longer than the 2h cron so verifySeedKey always has a prior snapshot to merge from when GDELT 429s all topics
 const TIMELINE_TTL = 43200; // 12h = 2× cron interval; tone/vol must survive until next 6h run
 const GDELT_DOC_API = 'https://api.gdeltproject.org/api/v2/doc/doc';
-const INTER_TOPIC_DELAY_MS = 20_000; // 20s between topics on success
-const POST_EXHAUST_DELAY_MS = 120_000; // 2min extra cooldown after a topic exhausts all retries
+const REQUEST_TIMEOUT_MS = Number(process.env.GDELT_REQUEST_TIMEOUT_MS || 8_000);
+const INTER_TOPIC_DELAY_MS = Number(process.env.GDELT_INTER_TOPIC_DELAY_MS || 5_000);
+const POST_EXHAUST_DELAY_MS = Number(process.env.GDELT_POST_EXHAUST_DELAY_MS || 15_000);
+const RETRY_BASE_DELAY_MS = Number(process.env.GDELT_RETRY_BASE_DELAY_MS || 15_000);
+const MAX_RETRIES = Number(process.env.GDELT_MAX_RETRIES || 1);
+const DEADLINE_SAFETY_MS = Number(process.env.GDELT_DEADLINE_SAFETY_MS || 15_000);
 
 const INTEL_TOPICS = [
   { id: 'military',     query: '(military exercise OR troop deployment OR airstrike OR "naval exercise") sourcelang:eng' },
@@ -52,7 +56,7 @@ async function fetchTopicArticles(topic) {
 
   const resp = await fetch(url.toString(), {
     headers: { 'User-Agent': CHROME_UA },
-    signal: AbortSignal.timeout(15_000),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
 
   if (!resp.ok) throw new Error(`GDELT ${topic.id}: HTTP ${resp.status}`);
@@ -87,7 +91,7 @@ async function fetchTopicTimeline(topic, mode) {
   try {
     const resp = await fetch(url.toString(), {
       headers: { 'User-Agent': CHROME_UA },
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     if (!resp.ok) return [];
     const data = await resp.json();
@@ -97,7 +101,20 @@ async function fetchTopicTimeline(topic, mode) {
   }
 }
 
-async function fetchWithRetry(topic, maxRetries = 3) {
+function getDeadlineMs() {
+  const timeoutSec = Number(process.env.SEEDER_TIMEOUT_SEC || 180);
+  return Date.now() + Math.max(60_000, timeoutSec * 1000 - DEADLINE_SAFETY_MS);
+}
+
+function cloneCachedTopic(topic) {
+  return {
+    id: topic.id,
+    articles: Array.isArray(topic.articles) ? [...topic.articles] : [],
+    fetchedAt: topic.fetchedAt || new Date().toISOString(),
+  };
+}
+
+async function fetchWithRetry(topic, deadlineMs, maxRetries = MAX_RETRIES) {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fetchTopicArticles(topic);
@@ -108,8 +125,11 @@ async function fetchWithRetry(topic, maxRetries = 3) {
         // exhausted:true only when 429 was the reason — post-exhaust cooldown is only relevant for rate-limit windows
         return { id: topic.id, articles: [], fetchedAt: new Date().toISOString(), exhausted: is429 };
       }
-      // Exponential backoff: 60s, 120s, 240s — GDELT rate limit windows exceed 50s
-      const backoff = 60_000 * Math.pow(2, attempt);
+      const backoff = RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+      if (Date.now() + backoff + REQUEST_TIMEOUT_MS >= deadlineMs) {
+        console.warn(`    ${topic.id}: skipping retry to stay within seeder timeout budget`);
+        return { id: topic.id, articles: [], fetchedAt: new Date().toISOString(), exhausted: true };
+      }
       console.log(`    429 rate-limited, waiting ${backoff / 1000}s... (attempt ${attempt + 1}/${maxRetries + 1})`);
       await sleep(backoff);
     }
@@ -117,45 +137,62 @@ async function fetchWithRetry(topic, maxRetries = 3) {
 }
 
 async function fetchAllTopics() {
+  const deadlineMs = getDeadlineMs();
+  const previous = await verifySeedKey(CANONICAL_KEY).catch(() => null);
+  const prevMap = previous && Array.isArray(previous.topics)
+    ? new Map(previous.topics.map((t) => [t.id, t]))
+    : new Map();
   const topics = [];
   for (let i = 0; i < INTEL_TOPICS.length; i++) {
-    if (i > 0) await sleep(INTER_TOPIC_DELAY_MS);
-    console.log(`  Fetching ${INTEL_TOPICS[i].id}...`);
-    const result = await fetchWithRetry(INTEL_TOPICS[i]);
+    const topic = INTEL_TOPICS[i];
+    if (Date.now() + REQUEST_TIMEOUT_MS >= deadlineMs) {
+      if (prevMap.has(topic.id)) {
+        const cached = cloneCachedTopic(prevMap.get(topic.id));
+        console.log(`  Timeout budget reached before ${topic.id}; using ${cached.articles.length} cached articles`);
+        topics.push(cached);
+      } else {
+        console.log(`  Timeout budget reached before ${topic.id}; leaving topic empty`);
+        topics.push({ id: topic.id, articles: [], fetchedAt: new Date().toISOString(), exhausted: true });
+      }
+      continue;
+    }
+    if (i > 0) {
+      const delay = Math.min(INTER_TOPIC_DELAY_MS, Math.max(0, deadlineMs - Date.now() - REQUEST_TIMEOUT_MS));
+      if (delay > 0) await sleep(delay);
+    }
+    console.log(`  Fetching ${topic.id}...`);
+    const result = await fetchWithRetry(topic, deadlineMs);
     console.log(`    ${result.articles.length} articles`);
-    // Fetch tone/vol timelines in parallel — best-effort, 429s silently return []
-    const [tone, vol] = await Promise.all([
-      fetchTopicTimeline(INTEL_TOPICS[i], 'TimelineTone'),
-      fetchTopicTimeline(INTEL_TOPICS[i], 'TimelineVol'),
-    ]);
-    result._tone = tone;
-    result._vol = vol;
-    console.log(`    timeline: ${tone.length} tone pts, ${vol.length} vol pts`);
+    if (result.articles.length === 0 && prevMap.has(topic.id)) {
+      const cached = prevMap.get(topic.id);
+      if (cached?.articles?.length > 0) {
+        console.log(`    ${topic.id}: using ${cached.articles.length} cached articles from previous snapshot`);
+        result.articles = [...cached.articles];
+        result.fetchedAt = cached.fetchedAt;
+      }
+    }
+    if (result.articles.length > 0 && Date.now() + REQUEST_TIMEOUT_MS < deadlineMs) {
+      // Fetch tone/vol timelines in parallel — best-effort, 429s silently return []
+      const [tone, vol] = await Promise.all([
+        fetchTopicTimeline(topic, 'TimelineTone'),
+        fetchTopicTimeline(topic, 'TimelineVol'),
+      ]);
+      result._tone = tone;
+      result._vol = vol;
+      console.log(`    timeline: ${tone.length} tone pts, ${vol.length} vol pts`);
+    } else {
+      result._tone = [];
+      result._vol = [];
+      console.log('    timeline: skipped to preserve timeout budget');
+    }
     topics.push(result);
     // After a topic exhausts all retries, give GDELT a longer cooldown before hitting
     // it again with the next topic — the rate limit window for popular queries exceeds 50s
     if (result.exhausted && i < INTEL_TOPICS.length - 1) {
-      console.log(`    Rate-limit cooldown: waiting ${POST_EXHAUST_DELAY_MS / 1000}s before next topic...`);
-      await sleep(POST_EXHAUST_DELAY_MS);
-    }
-  }
-
-  // For topics that returned 0 articles (rate-limited), preserve the previous
-  // snapshot's articles rather than publishing empty results over good cached data.
-  const emptyTopics = topics.filter((t) => t.articles.length === 0);
-  if (emptyTopics.length > 0) {
-    const previous = await verifySeedKey(CANONICAL_KEY).catch(() => null);
-    if (previous && Array.isArray(previous.topics)) {
-      const prevMap = new Map(previous.topics.map((t) => [t.id, t]));
-      for (const topic of topics) {
-        if (topic.articles.length === 0 && prevMap.has(topic.id)) {
-          const prev = prevMap.get(topic.id);
-          if (prev.articles?.length > 0) {
-            console.log(`    ${topic.id}: rate-limited — using ${prev.articles.length} cached articles from previous snapshot`);
-            topic.articles = prev.articles;
-            topic.fetchedAt = prev.fetchedAt;
-          }
-        }
+      const cooldown = Math.min(POST_EXHAUST_DELAY_MS, Math.max(0, deadlineMs - Date.now() - REQUEST_TIMEOUT_MS));
+      if (cooldown > 0) {
+        console.log(`    Rate-limit cooldown: waiting ${cooldown / 1000}s before next topic...`);
+        await sleep(cooldown);
       }
     }
   }
