@@ -6,12 +6,12 @@ RUN apk add --no-cache curl coreutils python3 make g++
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-RUN npm ci --ignore-scripts
-
 COPY scripts/package.json scripts/package-lock.json ./scripts/
-RUN npm ci --prefix scripts --omit=dev
+RUN npm ci --prefix scripts --omit=dev --no-audit --prefer-offline --fetch-retries=5 --fetch-retry-maxtimeout=300000
 
-COPY . .
+# Seed jobs only need the script tree plus shared/data payloads referenced at runtime.
+COPY scripts/ ./scripts/
+COPY shared/ ./shared/
+COPY data/ ./data/
 
 CMD ["tail", "-f", "/dev/null"]
