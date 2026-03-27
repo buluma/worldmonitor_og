@@ -64,6 +64,8 @@ import {
   EarningsCalendarPanel,
   EconomicCalendarPanel,
   CotPositioningPanel,
+  DiseaseOutbreaksPanel,
+  SocialVelocityPanel,
 } from '@/components';
 import { SatelliteFiresPanel } from '@/components/SatelliteFiresPanel';
 import { focusInvestmentOnMap } from '@/services/investments-focus';
@@ -100,6 +102,7 @@ const WEB_PREMIUM_PANELS = new Set([
   'stock-backtest',
   'daily-market-brief',
   'market-implications',
+  'deduction',
 ]);
 
 export interface PanelLayoutManagerCallbacks {
@@ -731,7 +734,7 @@ export class PanelLayoutManager implements AppModule {
 
     this.createPanel('gdelt-intel', () => new GdeltIntelPanel());
 
-    if (SITE_VARIANT === 'full' && this.ctx.isDesktopApp) {
+    if (SITE_VARIANT === 'full') {
       import('@/components/DeductionPanel').then(({ DeductionPanel }) => {
         const deductionPanel = new DeductionPanel(() => this.ctx.allNews);
         this.ctx.panels['deduction'] = deductionPanel;
@@ -746,6 +749,8 @@ export class PanelLayoutManager implements AppModule {
             grid.appendChild(el);
           }
         }
+        this.applyPanelSettings();
+        this.updatePanelGating(getAuthState());
       });
     }
 
@@ -809,6 +814,9 @@ export class PanelLayoutManager implements AppModule {
       });
       this.ctx.panels['ucdp-events'] = ucdpEventsPanel;
     }
+
+    this.createPanel('disease-outbreaks', () => new DiseaseOutbreaksPanel());
+    this.createPanel('social-velocity', () => new SocialVelocityPanel());
 
     this.lazyPanel('displacement', () =>
       import('@/components/DisplacementPanel').then(m => {
@@ -1255,7 +1263,7 @@ export class PanelLayoutManager implements AppModule {
     if (import.meta.env.DEV) {
       const configured = new Set(Object.keys(ALL_PANELS).filter(k => k !== 'map'));
       const created = new Set(Object.keys(this.ctx.panels));
-      const extra = [...created].filter(k => !configured.has(k) && k !== 'deduction' && k !== 'runtime-config' && !k.startsWith('cw-') && !k.startsWith('mcp-'));
+      const extra = [...created].filter(k => !configured.has(k) && k !== 'runtime-config' && !k.startsWith('cw-') && !k.startsWith('mcp-'));
       if (extra.length) console.warn('[PanelLayoutManager] Panels created but not in ALL_PANELS:', extra);
     }
   }
