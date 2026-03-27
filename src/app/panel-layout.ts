@@ -1129,51 +1129,62 @@ export class PanelLayoutManager implements AppModule {
     });
     panelsGrid.appendChild(addPanelBlock);
 
-    if (isProUser()) {
-      const proBlock = document.createElement('button');
-      proBlock.className = 'add-panel-block ai-widget-block ai-widget-block-pro';
-      proBlock.setAttribute('aria-label', t('widgets.createInteractive'));
-      const proIcon = document.createElement('span');
-      proIcon.className = 'add-panel-block-icon';
-      proIcon.textContent = '\u26a1';
-      const proLabel = document.createElement('span');
-      proLabel.className = 'add-panel-block-label';
-      proLabel.textContent = t('widgets.createInteractive');
-      const proBadge = document.createElement('span');
-      proBadge.className = 'widget-pro-badge';
-      proBadge.textContent = t('widgets.proBadge');
-      proBlock.appendChild(proIcon);
-      proBlock.appendChild(proLabel);
-      proBlock.appendChild(proBadge);
-      proBlock.addEventListener('click', () => {
-        openWidgetChatModal({
-          mode: 'create',
-          tier: 'pro',
-          onComplete: (spec) => this.addCustomWidget(spec),
-        });
+    const proBlock = document.createElement('button');
+    proBlock.className = 'add-panel-block ai-widget-block ai-widget-block-pro';
+    proBlock.setAttribute('aria-label', t('widgets.createInteractive'));
+    const proIcon = document.createElement('span');
+    proIcon.className = 'add-panel-block-icon';
+    proIcon.textContent = '\u26a1';
+    const proLabel = document.createElement('span');
+    proLabel.className = 'add-panel-block-label';
+    proLabel.textContent = t('widgets.createInteractive');
+    const proBadge = document.createElement('span');
+    proBadge.className = 'widget-pro-badge';
+    proBadge.textContent = t('widgets.proBadge');
+    proBlock.appendChild(proIcon);
+    proBlock.appendChild(proLabel);
+    proBlock.appendChild(proBadge);
+    proBlock.addEventListener('click', () => {
+      openWidgetChatModal({
+        mode: 'create',
+        tier: 'pro',
+        onComplete: (spec) => this.addCustomWidget(spec),
       });
-      panelsGrid.appendChild(proBlock);
-    }
+    });
+    panelsGrid.appendChild(proBlock);
 
-    if (isProUser()) {
-      const mcpBlock = document.createElement('button');
-      mcpBlock.className = 'add-panel-block mcp-panel-block';
-      mcpBlock.setAttribute('aria-label', t('mcp.connectPanel'));
-      const mcpIcon = document.createElement('span');
-      mcpIcon.className = 'add-panel-block-icon';
-      mcpIcon.textContent = '\u26a1';
-      const mcpLabel = document.createElement('span');
-      mcpLabel.className = 'add-panel-block-label';
-      mcpLabel.textContent = t('mcp.connectPanel');
-      mcpBlock.appendChild(mcpIcon);
-      mcpBlock.appendChild(mcpLabel);
-      mcpBlock.addEventListener('click', () => {
-        openMcpConnectModal({
-          onComplete: (spec) => this.addMcpPanel(spec),
-        });
+    const mcpBlock = document.createElement('button');
+    mcpBlock.className = 'add-panel-block mcp-panel-block';
+    mcpBlock.setAttribute('aria-label', t('mcp.connectPanel'));
+    const mcpIcon = document.createElement('span');
+    mcpIcon.className = 'add-panel-block-icon';
+    mcpIcon.textContent = '\u26a1';
+    const mcpLabel = document.createElement('span');
+    mcpLabel.className = 'add-panel-block-label';
+    mcpLabel.textContent = t('mcp.connectPanel');
+    const mcpBadge = document.createElement('span');
+    mcpBadge.className = 'widget-pro-badge';
+    mcpBadge.textContent = t('widgets.proBadge');
+    mcpBlock.appendChild(mcpIcon);
+    mcpBlock.appendChild(mcpLabel);
+    mcpBlock.appendChild(mcpBadge);
+    mcpBlock.addEventListener('click', () => {
+      openMcpConnectModal({
+        onComplete: (spec) => this.addMcpPanel(spec),
       });
-      panelsGrid.appendChild(mcpBlock);
-    }
+    });
+    panelsGrid.appendChild(mcpBlock);
+
+    const proBlocks = [proBlock, mcpBlock];
+    const applyProBlockGating = (isPro: boolean) => {
+      for (const block of proBlocks) {
+        block.style.display = isPro ? '' : 'none';
+      }
+    };
+    applyProBlockGating(hasPremiumAccess(getAuthState()));
+    this.proBlockUnsubscribe = subscribeAuthState((state) => {
+      applyProBlockGating(hasPremiumAccess(state));
+    });
 
     const bottomGrid = document.getElementById('mapBottomGrid');
     if (bottomGrid) {
