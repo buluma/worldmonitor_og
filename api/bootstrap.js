@@ -67,8 +67,14 @@ const BOOTSTRAP_CACHE_KEYS = {
   bigmac:        'economic:bigmac:v1',
   fuelPrices:    'economic:fuel-prices:v1',
   nationalDebt:      'economic:national-debt:v1',
+  euGasStorage:      'economic:eu-gas-storage:v1',
+  eurostatCountryData: 'economic:eurostat-country-data:v1',
   marketImplications: 'intelligence:market-implications:v1',
   fearGreedIndex:    'market:fear-greed:v1',
+  crudeInventories:  'economic:crude-inventories:v1',
+  natGasStorage:     'economic:nat-gas-storage:v1',
+  ecbFxRates:        'economic:ecb-fx-rates:v1',
+  euFsi:             'economic:fsi-eu:v1',
 };
 
 const SLOW_KEYS = new Set([
@@ -88,8 +94,14 @@ const SLOW_KEYS = new Set([
   'bigmac',
   'fuelPrices',
   'nationalDebt',
+  'euGasStorage',
+  'eurostatCountryData',
   'marketImplications',
   'fearGreedIndex',
+  'crudeInventories',
+  'natGasStorage',
+  'ecbFxRates',
+  'euFsi',
 ]);
 const FAST_KEYS = new Set([
   'earthquakes', 'outages', 'serviceStatuses', 'ddosAttacks', 'trafficAnomalies', 'macroSignals', 'chokepoints', 'chokepointTransits',
