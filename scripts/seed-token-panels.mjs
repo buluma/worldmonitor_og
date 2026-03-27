@@ -33,10 +33,10 @@ async function fetchWithRateLimitRetry(url, maxAttempts = 5, headers = { Accept:
 
 async function fetchFromCoinGecko() {
   const apiKey = process.env.COINGECKO_API_KEY;
-  const baseUrl = apiKey ? 'https://pro-api.coingecko.com/api/v3' : 'https://api.coingecko.com/api/v3';
+  const baseUrl = apiKey ? 'https://api.coingecko.com/api/v3' : 'https://api.coingecko.com/api/v3';
   const url = `${baseUrl}/coins/markets?vs_currency=usd&ids=${ALL_IDS.join(',')}&order=market_cap_desc&sparkline=false&price_change_percentage=24h,7d`;
   const headers = { Accept: 'application/json', 'User-Agent': CHROME_UA };
-  if (apiKey) headers['x-cg-pro-api-key'] = apiKey;
+  if (apiKey) headers['x-cg-demo-api-key'] = apiKey;
 
   const resp = await fetchWithRateLimitRetry(url, 5, headers);
   const data = await resp.json();
@@ -104,6 +104,9 @@ async function fetchTokenPanels() {
 }
 
 function validate(data) {
+  if (Array.isArray(data?.tokens)) {
+    return data.tokens.length >= 1 && data.tokens.some((token) => (token?.price ?? 0) > 0);
+  }
   return (
     Array.isArray(data?.defi?.tokens) &&
     data.defi.tokens.length >= 1 &&

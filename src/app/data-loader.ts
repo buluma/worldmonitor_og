@@ -785,6 +785,33 @@ export class DataLoaderManager implements AppModule {
     return labels[range];
   }
 
+  private summarizeFeedNames(feeds: Array<{ name: string }>, limit = 3): string {
+    const total = feeds.length;
+    const names = feeds
+      .map(feed => feed.name)
+      .filter(Boolean)
+      .slice(0, limit);
+    if (names.length === 0) return '';
+    if (total > limit) names.push(`+${total - limit} more`);
+    return names.join(', ');
+  }
+
+  private buildAllSourcesDisabledMessage(feeds: Array<{ name: string }>, intel = false): string {
+    const base = intel ? t('common.allIntelSourcesDisabled') : t('common.allSourcesDisabled');
+    const names = this.summarizeFeedNames(feeds);
+    return names ? `${base} Enable: ${names}.` : base;
+  }
+
+  private buildNoNewsAvailableMessage(
+    enabledFeeds: Array<{ name: string }>,
+    failedFeeds: Array<{ name: string }> = [],
+  ): string {
+    if (failedFeeds.length > 0) {
+      return `${t('common.noNewsAvailable')} Checked: ${this.summarizeFeedNames(enabledFeeds)}. Failed: ${this.summarizeFeedNames(failedFeeds)}.`;
+    }
+    return `${t('common.noNewsAvailable')} Checked: ${this.summarizeFeedNames(enabledFeeds)}.`;
+  }
+
   renderNewsForCategory(category: string, items: NewsItem[]): void {
     this.ctx.newsByCategory[category] = items;
     const panel = this.ctx.newsPanels[category];
@@ -814,7 +841,7 @@ export class DataLoaderManager implements AppModule {
       const enabledFeeds = (feeds ?? []).filter(f => !this.ctx.disabledSources.has(f.name));
       if (enabledFeeds.length === 0) {
         delete this.ctx.newsByCategory[category];
-        if (panel) panel.showError(t('common.allSourcesDisabled'));
+        if (panel) panel.showError(this.buildAllSourcesDisabledMessage(feeds ?? []));
         this.ctx.statusPanel?.updateFeed(category.charAt(0).toUpperCase() + category.slice(1), {
           status: 'ok',
           itemCount: 0,
@@ -839,6 +866,9 @@ export class DataLoaderManager implements AppModule {
         checkBatchForBreakingAlerts(items);
         this.flashMapForNews(items);
         this.renderNewsForCategory(category, items);
+        if (panel && items.length === 0) {
+          panel.showError(this.buildNoNewsAvailableMessage(enabledFeeds));
+        }
 
         this.ctx.statusPanel?.updateFeed(category.charAt(0).toUpperCase() + category.slice(1), {
           status: 'ok',
@@ -938,10 +968,7 @@ export class DataLoaderManager implements AppModule {
         if (items.length === 0) {
           const failures = getFeedFailures();
           const failedFeeds = fallbackFeeds.filter(f => failures.has(f.name));
-          if (failedFeeds.length > 0) {
-            const names = failedFeeds.map(f => f.name).join(', ');
-            panel.showError(`${t('common.noNewsAvailable')} (${names} failed)`);
-          }
+          panel.showError(this.buildNoNewsAvailableMessage(fallbackFeeds, failedFeeds));
         }
 
         try {
@@ -1019,7 +1046,7 @@ export class DataLoaderManager implements AppModule {
       const intelPanel = this.ctx.newsPanels['intel'];
       if (enabledIntelSources.length === 0) {
         delete this.ctx.newsByCategory['intel'];
-        if (intelPanel) intelPanel.showError(t('common.allIntelSourcesDisabled'));
+        if (intelPanel) intelPanel.showError(this.buildAllSourcesDisabledMessage(INTEL_SOURCES, true));
         this.ctx.statusPanel?.updateFeed('Intel', { status: 'ok', itemCount: 0 });
       } else if (digest?.categories && 'intel' in digest.categories) {
         // Digest branch for intel
@@ -1028,6 +1055,9 @@ export class DataLoaderManager implements AppModule {
           .filter(i => enabledIntelNames.has(i.source));
         checkBatchForBreakingAlerts(intel);
         this.renderNewsForCategory('intel', intel);
+        if (intelPanel && intel.length === 0) {
+          intelPanel.showError(this.buildNoNewsAvailableMessage(enabledIntelSources));
+        }
         if (intelPanel) {
           try {
             const baseline = await updateBaseline('news:intel', intel.length);
@@ -1069,6 +1099,11 @@ export class DataLoaderManager implements AppModule {
             const intel = intelResult[0].value;
             checkBatchForBreakingAlerts(intel);
             this.renderNewsForCategory('intel', intel);
+            if (intelPanel && intel.length === 0) {
+              const failures = getFeedFailures();
+              const failedIntelFeeds = fallbackIntelFeeds.filter(f => failures.has(f.name));
+              intelPanel.showError(this.buildNoNewsAvailableMessage(fallbackIntelFeeds, failedIntelFeeds));
+            }
             if (intelPanel) {
               try {
                 const baseline = await updateBaseline('news:intel', intel.length);
@@ -1153,7 +1188,9 @@ export class DataLoaderManager implements AppModule {
       const results = await fetchStockAnalysesForTargets(staleTargets);
       if (results.length === 0) {
         if (cachedSnapshots.length === 0) {
-          panel.showRetrying('Stock analysis is waiting for eligible watchlist symbols.');
+          panel.showRetrying(targets.length === 0
+            ? 'Stock analysis is waiting for eligible watchlist symbols.'
+            : 'Stock analysis data is temporarily unavailable.');
         }
         return;
       }
@@ -1167,7 +1204,7 @@ export class DataLoaderManager implements AppModule {
         panel.renderAnalyses(cachedSnapshots, cachedHistory, 'cached');
         return;
       }
-      panel.showError('Premium stock analysis is temporarily unavailable.');
+      panel.showError('Stock analysis data is temporarily unavailable.');
     }
   }
 
@@ -1191,7 +1228,9 @@ export class DataLoaderManager implements AppModule {
       const results = await fetchStockBacktestsForTargets(staleTargets);
       if (results.length === 0) {
         if (stored.length === 0) {
-          panel.showRetrying('Backtesting is waiting for eligible watchlist symbols.');
+          panel.showRetrying(targets.length === 0
+            ? 'Backtesting is waiting for eligible watchlist symbols.'
+            : 'Backtesting data is temporarily unavailable.');
         }
         return;
       }
@@ -1203,7 +1242,7 @@ export class DataLoaderManager implements AppModule {
         panel.renderBacktests(stored, 'cached');
         return;
       }
-      panel.showError('Premium stock backtesting is temporarily unavailable.');
+      panel.showError('Backtesting data is temporarily unavailable.');
     }
   }
 
@@ -1292,6 +1331,8 @@ export class DataLoaderManager implements AppModule {
           heatmapPanel?.renderHeatmap(items, sectorBars.length ? sectorBars : undefined);
         } else if (stocksResult.skipped) {
           this.ctx.panels['heatmap']?.showConfigError(finnhubConfigMsg);
+        } else {
+          heatmapPanel?.showRetrying(t('common.failedSectorData'));
         }
       }
 

@@ -34,11 +34,11 @@ const COINPAPRIKA_ID_MAP = stablecoinConfig.coinpaprika;
 async function fetchFromCoinGecko() {
   const apiKey = process.env.COINGECKO_API_KEY;
   const baseUrl = apiKey
-    ? 'https://pro-api.coingecko.com/api/v3'
+    ? 'https://api.coingecko.com/api/v3'
     : 'https://api.coingecko.com/api/v3';
   const url = `${baseUrl}/coins/markets?vs_currency=usd&ids=${STABLECOIN_IDS}&order=market_cap_desc&sparkline=false&price_change_percentage=7d`;
   const headers = { Accept: 'application/json', 'User-Agent': CHROME_UA };
-  if (apiKey) headers['x-cg-pro-api-key'] = apiKey;
+  if (apiKey) headers['x-cg-demo-api-key'] = apiKey;
 
   const resp = await fetchWithRateLimitRetry(url, 5, headers);
   const data = await resp.json();

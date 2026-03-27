@@ -1613,9 +1613,9 @@ async function seedCryptoQuotes() {
   let data;
   try {
     const apiKey = process.env.COINGECKO_API_KEY;
-    const base = apiKey ? 'https://pro-api.coingecko.com/api/v3' : 'https://api.coingecko.com/api/v3';
+    const base = apiKey ? 'https://api.coingecko.com/api/v3' : 'https://api.coingecko.com/api/v3';
     const headers = { Accept: 'application/json' };
-    if (apiKey) headers['x-cg-pro-api-key'] = apiKey;
+    if (apiKey) headers['x-cg-demo-api-key'] = apiKey;
     const url = `${base}/coins/markets?vs_currency=usd&ids=${CRYPTO_IDS.join(',')}&order=market_cap_desc&sparkline=true&price_change_percentage=24h`;
     data = await cyberHttpGetJson(url, headers, 15000);
     if (!Array.isArray(data) || data.length === 0) throw new Error('CoinGecko returned no data');
@@ -1662,9 +1662,9 @@ async function seedStablecoinMarkets() {
   let data;
   try {
     const apiKey = process.env.COINGECKO_API_KEY;
-    const base = apiKey ? 'https://pro-api.coingecko.com/api/v3' : 'https://api.coingecko.com/api/v3';
+    const base = apiKey ? 'https://api.coingecko.com/api/v3' : 'https://api.coingecko.com/api/v3';
     const headers = { Accept: 'application/json' };
-    if (apiKey) headers['x-cg-pro-api-key'] = apiKey;
+    if (apiKey) headers['x-cg-demo-api-key'] = apiKey;
     const url = `${base}/coins/markets?vs_currency=usd&ids=${STABLECOIN_IDS}&order=market_cap_desc&sparkline=false&price_change_percentage=7d`;
     data = await cyberHttpGetJson(url, headers, 15000);
     if (!Array.isArray(data) || data.length === 0) throw new Error('CoinGecko returned no data');
@@ -1698,9 +1698,9 @@ async function seedCryptoSectors() {
   let data;
   try {
     const apiKey = process.env.COINGECKO_API_KEY;
-    const base = apiKey ? 'https://pro-api.coingecko.com/api/v3' : 'https://api.coingecko.com/api/v3';
+    const base = apiKey ? 'https://api.coingecko.com/api/v3' : 'https://api.coingecko.com/api/v3';
     const headers = { Accept: 'application/json' };
-    if (apiKey) headers['x-cg-pro-api-key'] = apiKey;
+    if (apiKey) headers['x-cg-demo-api-key'] = apiKey;
     const url = `${base}/coins/markets?vs_currency=usd&ids=${allIds.join(',')}&order=market_cap_desc&sparkline=false&price_change_percentage=24h`;
     data = await cyberHttpGetJson(url, headers, 15000);
     if (!Array.isArray(data) || data.length === 0) throw new Error('CoinGecko returned no data');
@@ -1764,9 +1764,9 @@ async function seedTokenPanels() {
   let data;
   try {
     const apiKey = process.env.COINGECKO_API_KEY;
-    const base = apiKey ? 'https://pro-api.coingecko.com/api/v3' : 'https://api.coingecko.com/api/v3';
+    const base = apiKey ? 'https://api.coingecko.com/api/v3' : 'https://api.coingecko.com/api/v3';
     const headers = { Accept: 'application/json' };
-    if (apiKey) headers['x-cg-pro-api-key'] = apiKey;
+    if (apiKey) headers['x-cg-demo-api-key'] = apiKey;
     const url = `${base}/coins/markets?vs_currency=usd&ids=${allIds.join(',')}&order=market_cap_desc&sparkline=false&price_change_percentage=24h,7d`;
     data = await cyberHttpGetJson(url, headers, 15000);
     if (!Array.isArray(data) || data.length === 0) throw new Error('CoinGecko returned no data');

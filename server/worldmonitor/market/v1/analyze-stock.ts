@@ -7,7 +7,7 @@ import type {
 import { callLlm } from '../../../_shared/llm';
 import { cachedFetchJson } from '../../../_shared/redis';
 import { CHROME_UA, yahooGate } from '../../../_shared/constants';
-import { UPSTREAM_TIMEOUT_MS, sanitizeSymbol } from './_shared';
+import { UPSTREAM_TIMEOUT_MS, getRelayBaseUrl, getRelayHeaders, sanitizeSymbol } from './_shared';
 import { storeStockAnalysisSnapshot } from './premium-stock-store';
 import { searchRecentStockHeadlines } from './stock-news-search';
 
@@ -217,15 +217,9 @@ function uniqueRounded(values: number[]): number[] {
 }
 
 export async function fetchYahooHistory(symbol: string): Promise<{ candles: Candle[]; currency: string } | null> {
-  await yahooGate();
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=6mo&interval=1d&includePrePost=false&events=div,splits`;
-  const response = await fetch(url, {
-    headers: { 'User-Agent': CHROME_UA },
-    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-  });
-  if (!response.ok) return null;
+  const data = await fetchYahooHistoryChart(symbol);
+  if (!data) return null;
 
-  const data = await response.json() as YahooChartResponse;
   const result = data.chart?.result?.[0];
   const quote = result?.indicators?.quote?.[0];
   const timestamps = result?.timestamp ?? [];
@@ -254,6 +248,46 @@ export async function fetchYahooHistory(symbol: string): Promise<{ candles: Cand
 
   if (candles.length < 30) return null;
   return { candles, currency: result?.meta?.currency || 'USD' };
+}
+
+async function fetchYahooHistoryChart(symbol: string): Promise<YahooChartResponse | null> {
+  const path = `/v8/finance/chart/${encodeURIComponent(symbol)}?range=6mo&interval=1d&includePrePost=false&events=div,splits`;
+
+  try {
+    await yahooGate();
+    const response = await fetch(`https://query1.finance.yahoo.com${path}`, {
+      headers: { 'User-Agent': CHROME_UA },
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+    });
+    if (response.ok) {
+      return await response.json() as YahooChartResponse;
+    }
+    console.warn(`[YahooHistory] ${symbol} direct HTTP ${response.status}`);
+  } catch (err) {
+    console.warn(`[YahooHistory] ${symbol} direct error:`, (err as Error).message);
+  }
+
+  const relayBase = getRelayBaseUrl();
+  if (!relayBase) {
+    console.warn(`[YahooHistory] ${symbol} relay skipped: WS_RELAY_URL not set`);
+    return null;
+  }
+
+  try {
+    const relayUrl = `${relayBase}/yahoo-chart?symbol=${encodeURIComponent(symbol)}&range=6mo&interval=1d`;
+    const response = await fetch(relayUrl, {
+      headers: getRelayHeaders(),
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      console.warn(`[YahooHistory] ${symbol} relay HTTP ${response.status}: ${await response.text().catch(() => '')}`);
+      return null;
+    }
+    return await response.json() as YahooChartResponse;
+  } catch (err) {
+    console.warn(`[YahooHistory] ${symbol} relay error:`, (err as Error).message);
+    return null;
+  }
 }
 
 export function buildTechnicalSnapshot(candles: Candle[]): TechnicalSnapshot {

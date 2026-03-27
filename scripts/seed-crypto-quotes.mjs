@@ -36,11 +36,11 @@ async function fetchFromCoinGecko() {
   const ids = CRYPTO_IDS.join(',');
   const apiKey = process.env.COINGECKO_API_KEY;
   const baseUrl = apiKey
-    ? 'https://pro-api.coingecko.com/api/v3'
+    ? 'https://api.coingecko.com/api/v3'
     : 'https://api.coingecko.com/api/v3';
   const url = `${baseUrl}/coins/markets?vs_currency=usd&ids=${ids}&order=market_cap_desc&sparkline=true&price_change_percentage=24h`;
   const headers = { Accept: 'application/json', 'User-Agent': CHROME_UA };
-  if (apiKey) headers['x-cg-pro-api-key'] = apiKey;
+  if (apiKey) headers['x-cg-demo-api-key'] = apiKey;
 
   const resp = await fetchWithRateLimitRetry(url, 5, headers);
   const data = await resp.json();

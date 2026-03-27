@@ -11,7 +11,9 @@ export UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN
 
 SEEDER_TIMEOUT_BIN="${SEEDER_TIMEOUT_BIN:-$(command -v timeout || command -v gtimeout || true)}"
 SEEDER_TIMEOUT_SEC="${SEEDER_TIMEOUT_SEC:-180}"
-export SEEDER_TIMEOUT_BIN SEEDER_TIMEOUT_SEC
+SEEDER_LOCK_RETRIES="${SEEDER_LOCK_RETRIES:-3}"
+SEEDER_LOCK_RETRY_SLEEP_SEC="${SEEDER_LOCK_RETRY_SLEEP_SEC:-5}"
+export SEEDER_TIMEOUT_BIN SEEDER_TIMEOUT_SEC SEEDER_LOCK_RETRIES SEEDER_LOCK_RETRY_SLEEP_SEC
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -44,15 +46,25 @@ for f in "$SCRIPT_DIR"/seed-*.mjs; do
       ;;
   esac
 
-  if [ -n "$SEEDER_TIMEOUT_BIN" ]; then
-    # shellcheck disable=SC2086
-    output=$("$SEEDER_TIMEOUT_BIN" "$SEEDER_TIMEOUT_SEC" node $args 2>&1)
-    rc=$?
-  else
-    # shellcheck disable=SC2086
-    output=$(node $args 2>&1)
-    rc=$?
-  fi
+  attempt=1
+  while :; do
+    if [ -n "$SEEDER_TIMEOUT_BIN" ]; then
+      # shellcheck disable=SC2086
+      output=$("$SEEDER_TIMEOUT_BIN" "$SEEDER_TIMEOUT_SEC" node $args 2>&1)
+      rc=$?
+    else
+      # shellcheck disable=SC2086
+      output=$(node $args 2>&1)
+      rc=$?
+    fi
+
+    if echo "$output" | grep -qi "SKIPPED: another seed run in progress" && [ "$attempt" -lt "$SEEDER_LOCK_RETRIES" ]; then
+      attempt=$((attempt + 1))
+      sleep "$SEEDER_LOCK_RETRY_SLEEP_SEC"
+      continue
+    fi
+    break
+  done
 
   last=$(echo "$output" | tail -1)
 
