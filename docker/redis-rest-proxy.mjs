@@ -64,7 +64,10 @@ async function runCommand(args) {
   return client.sendCommand([cmd, ...cmdArgs.map(String)]);
 }
 
-const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
+// Local self-hosted seeds can legitimately publish multi-megabyte JSON payloads
+// such as historical disease datasets. Keep this aligned with the 5MB seed
+// harness guard in scripts/_seed-utils.mjs.
+const MAX_BODY_BYTES = 5 * 1024 * 1024; // 5 MB
 
 async function readBody(req) {
   const chunks = [];
