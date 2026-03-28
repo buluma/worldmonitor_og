@@ -80,12 +80,20 @@ export async function setCachedJson(key: string, value: unknown, ttlSeconds: num
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
   if (!url || !token) return;
   try {
-    // Atomic SET with EX — single call avoids race between SET and EXPIRE (C-3 fix)
-    await fetch(`${url}/set/${encodeURIComponent(prefixKey(key))}/${encodeURIComponent(JSON.stringify(value))}/EX/${ttlSeconds}`, {
+    // Use the pipeline API instead of path-encoding JSON into the URL.
+    // This is more robust for larger payloads such as risk score snapshots and
+    // avoids silent write failures when URLs become too large in self-hosted mode.
+    const resp = await fetch(`${url}/pipeline`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify([
+        ['SET', prefixKey(key), JSON.stringify(value), 'EX', String(ttlSeconds)],
+      ]),
       signal: AbortSignal.timeout(REDIS_OP_TIMEOUT_MS),
     });
+    if (!resp.ok) {
+      console.warn(`[redis] setCachedJson HTTP ${resp.status} for "${key}"`);
+    }
   } catch (err) {
     console.warn('[redis] setCachedJson failed:', errMsg(err));
   }

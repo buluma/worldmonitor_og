@@ -87,6 +87,12 @@ const OPENSKY_PROXY_AUTH = process.env.OPENSKY_PROXY_AUTH || process.env.OREF_PR
 const OPENSKY_PROXY_ENABLED = !!OPENSKY_PROXY_AUTH;
 
 const PROXY_URL = process.env.PROXY_URL || ''; // generic residential proxy (US exit) — user:pass@host:port or http://...
+const WM_RPC_BASE_URL = String(process.env.WM_RPC_BASE_URL || 'https://api.worldmonitor.app').replace(/\/$/, '');
+const WM_RPC_ORIGIN = String(process.env.WM_RPC_ORIGIN || WM_RPC_BASE_URL.replace(/\/api$/, '')).replace(/\/$/, '');
+
+function wmRpcUrl(pathname) {
+  return `${WM_RPC_BASE_URL}${pathname}`;
+}
 
 // OREF (Israel Home Front Command) siren alerts — fetched via HTTP proxy (Israel exit)
 const OREF_PROXY_AUTH = process.env.OREF_PROXY_AUTH || ''; // format: user:pass@host:port
@@ -2997,7 +3003,7 @@ async function classifyFetchLlm(titles) {
 let classifyInFlight = false;
 
 async function seedClassifyForVariant(variant, seenTitles) {
-  const digestUrl = `https://api.worldmonitor.app/api/news/v1/list-feed-digest?variant=${variant}&lang=en`;
+  const digestUrl = wmRpcUrl(`/api/news/v1/list-feed-digest?variant=${variant}&lang=en`);
   let digest;
   try {
     const resp = await new Promise((resolve, reject) => {
@@ -3172,7 +3178,7 @@ async function startClassifySeedLoop() {
 // so service statuses are always cached (TTL is 30 min).
 // ─────────────────────────────────────────────────────────────
 const SERVICE_STATUSES_SEED_INTERVAL_MS = 15 * 60 * 1000; // 15 min (TTL/2)
-const SERVICE_STATUSES_RPC_URL = 'https://api.worldmonitor.app/api/infrastructure/v1/list-service-statuses';
+const SERVICE_STATUSES_RPC_URL = wmRpcUrl('/api/infrastructure/v1/list-service-statuses');
 
 async function seedServiceStatuses() {
   try {
@@ -3181,7 +3187,7 @@ async function seedServiceStatuses() {
       headers: {
         'Content-Type': 'application/json',
         'User-Agent': CHROME_UA,
-        Origin: 'https://worldmonitor.app',
+        Origin: WM_RPC_ORIGIN,
       },
       body: '{}',
       signal: AbortSignal.timeout(60_000),
@@ -3696,14 +3702,14 @@ function startTheaterPostureSeedLoop() {
 // The RPC handler itself refreshes the stale key on every call.
 // ─────────────────────────────────────────────────────────────
 const CII_WARM_PING_INTERVAL_MS = 8 * 60 * 1000; // 8 min (live cache TTL is 10 min)
-const CII_RPC_URL = 'https://api.worldmonitor.app/api/intelligence/v1/get-risk-scores';
+const CII_RPC_URL = wmRpcUrl('/api/intelligence/v1/get-risk-scores');
 
 async function seedCiiWarmPing() {
   try {
     const resp = await fetch(CII_RPC_URL, {
       headers: {
         'User-Agent': CHROME_UA,
-        Origin: 'https://worldmonitor.app',
+        Origin: WM_RPC_ORIGIN,
       },
       signal: AbortSignal.timeout(60_000),
     });
@@ -3737,13 +3743,13 @@ function startCiiWarmPingLoop() {
 // Interval matches health.js maxStaleMin (60 min) with a 2× margin.
 // ─────────────────────────────────────────────────────────────
 const CHOKEPOINT_WARM_PING_INTERVAL_MS = 30 * 60 * 1000; // 30 min
-const CHOKEPOINT_RPC_URL = 'https://api.worldmonitor.app/api/supply-chain/v1/get-chokepoint-status';
+const CHOKEPOINT_RPC_URL = wmRpcUrl('/api/supply-chain/v1/get-chokepoint-status');
 
 async function seedChokepointWarmPing() {
   try {
     const resp = await fetch(CHOKEPOINT_RPC_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'User-Agent': CHROME_UA, Origin: 'https://worldmonitor.app' },
+      headers: { 'Content-Type': 'application/json', 'User-Agent': CHROME_UA, Origin: WM_RPC_ORIGIN },
       body: '{}',
       signal: AbortSignal.timeout(60_000),
     });
@@ -3775,13 +3781,13 @@ function startChokepointWarmPingLoop() {
 // seed-meta on every live fetch; we just need to call it regularly.
 // ─────────────────────────────────────────────────────────────
 const CABLE_HEALTH_WARM_PING_INTERVAL_MS = 30 * 60 * 1000; // 30 min
-const CABLE_HEALTH_RPC_URL = 'https://api.worldmonitor.app/api/infrastructure/v1/get-cable-health';
+const CABLE_HEALTH_RPC_URL = wmRpcUrl('/api/infrastructure/v1/get-cable-health');
 
 async function seedCableHealthWarmPing() {
   try {
     const resp = await fetch(CABLE_HEALTH_RPC_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'User-Agent': CHROME_UA, Origin: 'https://worldmonitor.app' },
+      headers: { 'Content-Type': 'application/json', 'User-Agent': CHROME_UA, Origin: WM_RPC_ORIGIN },
       body: '{}',
       signal: AbortSignal.timeout(60_000),
     });

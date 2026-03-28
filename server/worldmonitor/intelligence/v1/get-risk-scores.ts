@@ -9,6 +9,7 @@ import type {
 } from '../../../../src/generated/server/worldmonitor/intelligence/v1/service_server';
 
 import { getCachedJson, setCachedJson, cachedFetchJsonWithMeta } from '../../../_shared/redis';
+import { CHROME_UA } from '../../../_shared/constants';
 import { TIER1_COUNTRIES } from './_shared';
 import { fetchAcledCached } from '../../../_shared/acled';
 
@@ -593,6 +594,42 @@ const RISK_CACHE_KEY = 'risk:scores:sebuf:v1';
 const RISK_STALE_CACHE_KEY = 'risk:scores:sebuf:stale:v1';
 const RISK_CACHE_TTL = 600;
 const RISK_STALE_TTL = 3600;
+const REMOTE_RISK_SCORES_FALLBACK_URL = String(
+  process.env.WM_RISK_SCORES_FALLBACK_URL || 'https://api.worldmonitor.app/api/intelligence/v1/get-risk-scores',
+).trim();
+
+async function fetchRemoteRiskScoresFallback(): Promise<GetRiskScoresResponse | null> {
+  if (process.env.WM_SELF_HOSTED !== '1' || !REMOTE_RISK_SCORES_FALLBACK_URL) return null;
+
+  try {
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      'User-Agent': CHROME_UA,
+    };
+    const apiKey = process.env.WORLDMONITOR_API_KEY?.trim();
+    if (apiKey) headers['X-WorldMonitor-Key'] = apiKey;
+
+    const resp = await fetch(REMOTE_RISK_SCORES_FALLBACK_URL, {
+      headers,
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!resp.ok) throw new Error(`remote fallback HTTP ${resp.status}`);
+
+    const result = await resp.json() as GetRiskScoresResponse;
+    if (!Array.isArray(result?.ciiScores) || result.ciiScores.length === 0) {
+      throw new Error('remote fallback returned no scores');
+    }
+
+    await Promise.all([
+      setCachedJson(RISK_CACHE_KEY, result, RISK_CACHE_TTL),
+      setCachedJson(RISK_STALE_CACHE_KEY, result, RISK_STALE_TTL),
+    ]);
+    return result;
+  } catch (err) {
+    console.warn('[risk-scores] remote fallback failed:', err instanceof Error ? err.message : String(err));
+    return null;
+  }
+}
 
 // ========================================================================
 // RPC handler
@@ -621,6 +658,9 @@ export async function getRiskScores(
       return result;
     }
   } catch { /* upstream failed, fall through to stale */ }
+
+  const remoteFallback = await fetchRemoteRiskScoresFallback();
+  if (remoteFallback) return remoteFallback;
 
   const stale = (await getCachedJson(RISK_STALE_CACHE_KEY)) as GetRiskScoresResponse | null;
   if (stale) return stale;

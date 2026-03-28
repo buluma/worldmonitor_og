@@ -85,6 +85,8 @@ export const SEED_SCHEDULER_MANIFEST = {
       description: 'Heavy slow-moving comparison and macro reference jobs.',
       dependsOn: ['daily'],
       seeds: [
+        { script: 'seed-submarine-cables.mjs' },
+        { script: 'seed-military-bases.mjs' },
         { script: 'seed-bigmac.mjs', dependsOn: ['seed-fx-rates.mjs'] },
         { script: 'seed-grocery-basket.mjs', dependsOn: ['seed-fx-rates.mjs'] },
         { script: 'seed-fuel-prices.mjs' },

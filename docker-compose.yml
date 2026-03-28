@@ -57,6 +57,8 @@ services:
     environment:
       PORT: "3004"
       WM_SELF_HOSTED: "1"
+      WM_RPC_BASE_URL: "http://worldmonitor:8080"
+      WM_RPC_ORIGIN: "http://worldmonitor:8080"
       UPSTASH_REDIS_REST_URL: "http://redis-rest:80"
       UPSTASH_REDIS_REST_TOKEN: "${REDIS_TOKEN:-wm-local-token}"
     depends_on:
