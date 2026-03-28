@@ -10,6 +10,7 @@ import { readJsonFromUpstash } from './_upstash-json.js';
 import { resolveApiKeyFromBearer } from './_oauth-token.js';
 // @ts-expect-error — JS module, no declaration file
 import { timingSafeIncludes } from './_crypto.js';
+import COUNTRY_BBOXES from '../shared/country-bboxes.js';
 
 export const config = { runtime: 'edge' };
 
@@ -306,14 +307,185 @@ const TOOL_REGISTRY: ToolDef[] = [
       required: ['country_code'],
     },
     _execute: async (params, base, apiKey) => {
-      const res = await fetch(`${base}/api/intelligence/v1/get-country-intel-brief`, {
+      const UA = 'worldmonitor-mcp-edge/1.0';
+      const countryCode = String(params.country_code ?? '').toUpperCase().slice(0, 2);
+
+      // Fetch current geopolitical headlines to ground the LLM (budget: 2 s — cached endpoint).
+      // Without context the model hallucinates events — real headlines anchor it.
+      // 2 s + 22 s brief = 24 s worst-case; 6 s margin before the 30 s Edge kill.
+      let contextParam = '';
+      try {
+        const digestRes = await fetch(`${base}/api/news/v1/list-feed-digest?variant=geo&lang=en`, {
+          headers: { 'X-WorldMonitor-Key': apiKey, 'User-Agent': UA },
+          signal: AbortSignal.timeout(2_000),
+        });
+        if (digestRes.ok) {
+          type DigestPayload = { categories?: Record<string, { items?: { title?: string }[] }> };
+          const digest = await digestRes.json() as DigestPayload;
+          const headlines = Object.values(digest.categories ?? {})
+            .flatMap(cat => cat.items ?? [])
+            .map(item => item.title ?? '')
+            .filter(Boolean)
+            .slice(0, 15)
+            .join('\n');
+          if (headlines) contextParam = encodeURIComponent(headlines.slice(0, 4000));
+        }
+      } catch { /* proceed without context — better than failing */ }
+
+      const briefUrl = contextParam
+        ? `${base}/api/intelligence/v1/get-country-intel-brief?context=${contextParam}`
+        : `${base}/api/intelligence/v1/get-country-intel-brief`;
+
+      const res = await fetch(briefUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-WorldMonitor-Key': apiKey, 'User-Agent': 'worldmonitor-mcp-edge/1.0' },
-        body: JSON.stringify({ country_code: String(params.country_code ?? ''), framework: String(params.framework ?? '') }),
-        signal: AbortSignal.timeout(25_000),
+        headers: { 'Content-Type': 'application/json', 'X-WorldMonitor-Key': apiKey, 'User-Agent': UA },
+        body: JSON.stringify({ country_code: countryCode, framework: String(params.framework ?? '') }),
+        signal: AbortSignal.timeout(22_000),
       });
       if (!res.ok) throw new Error(`get-country-intel-brief HTTP ${res.status}`);
       return res.json();
+    },
+  },
+  {
+    name: 'get_airspace',
+    description: 'Live ADS-B aircraft over a country. Returns civilian flights (OpenSky) and identified military aircraft with callsigns, positions, altitudes, and headings. Answers questions like "how many planes are over the UAE right now?" or "are there military aircraft over Taiwan?"',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        country_code: {
+          type: 'string',
+          description: 'ISO 3166-1 alpha-2 country code (e.g. "AE", "US", "GB", "JP")',
+        },
+        type: {
+          type: 'string',
+          enum: ['all', 'civilian', 'military'],
+          description: 'Filter: all flights (default), civilian only, or military only',
+        },
+      },
+      required: ['country_code'],
+    },
+    _execute: async (params, base, apiKey) => {
+      const code = String(params.country_code ?? '').toUpperCase().slice(0, 2);
+      const bbox = COUNTRY_BBOXES[code];
+      if (!bbox) return { error: `Unknown country code: ${code}. Use ISO 3166-1 alpha-2 (e.g. "AE", "US", "GB").` };
+      const [sw_lat, sw_lon, ne_lat, ne_lon] = bbox;
+      const type = String(params.type ?? 'all');
+      const UA = 'worldmonitor-mcp-edge/1.0';
+      const headers = { 'X-WorldMonitor-Key': apiKey, 'User-Agent': UA };
+      const bboxQ = `sw_lat=${sw_lat}&sw_lon=${sw_lon}&ne_lat=${ne_lat}&ne_lon=${ne_lon}`;
+
+      type CivilianResp = {
+        positions?: { callsign: string; icao24: string; lat: number; lon: number; altitude_m: number; ground_speed_kts: number; track_deg: number; on_ground: boolean }[];
+        source?: string;
+        updated_at?: number;
+      };
+      type MilResp = {
+        flights?: { callsign: string; hex_code: string; aircraft_type: string; aircraft_model: string; operator: string; operator_country: string; location?: { latitude: number; longitude: number }; altitude: number; heading: number; speed: number; is_interesting: boolean; note: string }[];
+      };
+
+      const [civResult, milResult] = await Promise.allSettled([
+        type === 'military'
+          ? Promise.resolve(null)
+          : fetch(`${base}/api/aviation/v1/track-aircraft?${bboxQ}`, { headers, signal: AbortSignal.timeout(8_000) })
+              .then(r => r.ok ? r.json() as Promise<CivilianResp> : Promise.reject(new Error(`HTTP ${r.status}`))),
+        type === 'civilian'
+          ? Promise.resolve(null)
+          : fetch(`${base}/api/military/v1/list-military-flights?${bboxQ}&page_size=100`, { headers, signal: AbortSignal.timeout(8_000) })
+              .then(r => r.ok ? r.json() as Promise<MilResp> : Promise.reject(new Error(`HTTP ${r.status}`))),
+      ]);
+
+      const civOk = type === 'military' || civResult.status === 'fulfilled';
+      const milOk = type === 'civilian' || milResult.status === 'fulfilled';
+
+      // Both sources down — total outage, don't return misleading empty data
+      if (!civOk && !milOk) throw new Error('Airspace data unavailable: both civilian and military sources failed');
+
+      const civ = civResult.status === 'fulfilled' ? civResult.value : null;
+      const mil = milResult.status === 'fulfilled' ? milResult.value : null;
+      const warnings: string[] = [];
+      if (!civOk) warnings.push('civilian ADS-B data unavailable');
+      if (!milOk) warnings.push('military flight data unavailable');
+
+      const civilianFlights = (civ?.positions ?? []).slice(0, 100).map(p => ({
+        callsign: p.callsign, icao24: p.icao24,
+        lat: p.lat, lon: p.lon,
+        altitude_m: p.altitude_m, speed_kts: p.ground_speed_kts,
+        heading_deg: p.track_deg, on_ground: p.on_ground,
+      }));
+      const militaryFlights = (mil?.flights ?? []).slice(0, 100).map(f => ({
+        callsign: f.callsign, hex_code: f.hex_code,
+        aircraft_type: f.aircraft_type, aircraft_model: f.aircraft_model,
+        operator: f.operator, operator_country: f.operator_country,
+        lat: f.location?.latitude, lon: f.location?.longitude,
+        altitude: f.altitude, heading: f.heading, speed: f.speed,
+        is_interesting: f.is_interesting, ...(f.note ? { note: f.note } : {}),
+      }));
+
+      return {
+        country_code: code,
+        bounding_box: { sw_lat, sw_lon, ne_lat, ne_lon },
+        civilian_count: civilianFlights.length,
+        military_count: militaryFlights.length,
+        ...(type !== 'military' && { civilian_flights: civilianFlights }),
+        ...(type !== 'civilian' && { military_flights: militaryFlights }),
+        ...(warnings.length > 0 && { partial: true, warnings }),
+        source: civ?.source ?? 'opensky',
+        updated_at: civ?.updated_at ? new Date(civ.updated_at).toISOString() : new Date().toISOString(),
+      };
+    },
+  },
+  {
+    name: 'get_maritime_activity',
+    description: "Live vessel traffic and maritime disruptions for a country's waters. Returns AIS density zones (ships-per-day, intensity score), dark ship events, and chokepoint congestion from AIS tracking.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        country_code: {
+          type: 'string',
+          description: 'ISO 3166-1 alpha-2 country code (e.g. "AE", "SA", "JP", "EG")',
+        },
+      },
+      required: ['country_code'],
+    },
+    _execute: async (params, base, apiKey) => {
+      const code = String(params.country_code ?? '').toUpperCase().slice(0, 2);
+      const bbox = COUNTRY_BBOXES[code];
+      if (!bbox) return { error: `Unknown country code: ${code}. Use ISO 3166-1 alpha-2 (e.g. "AE", "SA", "JP").` };
+      const [sw_lat, sw_lon, ne_lat, ne_lon] = bbox;
+      const bboxQ = `sw_lat=${sw_lat}&sw_lon=${sw_lon}&ne_lat=${ne_lat}&ne_lon=${ne_lon}`;
+      const headers = { 'X-WorldMonitor-Key': apiKey, 'User-Agent': 'worldmonitor-mcp-edge/1.0' };
+
+      type VesselResp = {
+        snapshot?: {
+          snapshot_at?: number;
+          density_zones?: { name: string; intensity: number; ships_per_day: number; delta_pct: number; note: string }[];
+          disruptions?: { name: string; type: string; severity: string; dark_ships: number; vessel_count: number; region: string; description: string }[];
+        };
+      };
+
+      const res = await fetch(`${base}/api/maritime/v1/get-vessel-snapshot?${bboxQ}`, {
+        headers, signal: AbortSignal.timeout(8_000),
+      });
+      if (!res.ok) throw new Error(`get-vessel-snapshot HTTP ${res.status}`);
+      const data = await res.json() as VesselResp;
+      const snap = data.snapshot ?? {};
+
+      return {
+        country_code: code,
+        bounding_box: { sw_lat, sw_lon, ne_lat, ne_lon },
+        snapshot_at: snap.snapshot_at ? new Date(snap.snapshot_at).toISOString() : new Date().toISOString(),
+        total_zones: (snap.density_zones ?? []).length,
+        total_disruptions: (snap.disruptions ?? []).length,
+        density_zones: (snap.density_zones ?? []).map(z => ({
+          name: z.name, intensity: z.intensity, ships_per_day: z.ships_per_day,
+          delta_pct: z.delta_pct, ...(z.note ? { note: z.note } : {}),
+        })),
+        disruptions: (snap.disruptions ?? []).map(d => ({
+          name: d.name, type: d.type, severity: d.severity,
+          dark_ships: d.dark_ships, vessel_count: d.vessel_count,
+          region: d.region, description: d.description,
+        })),
+      };
     },
   },
   {
@@ -359,6 +531,80 @@ const TOOL_REGISTRY: ToolDef[] = [
         signal: AbortSignal.timeout(25_000),
       });
       if (!res.ok) throw new Error(`get-forecasts HTTP ${res.status}`);
+      return res.json();
+    },
+  },
+  {
+    name: 'search_flights',
+    description: 'Search Google Flights for real-time flight options between two airports on a specific date. Returns available flights with prices, stops, airline, and segment details. Use IATA airport codes (e.g. "JFK", "LHR", "DXB").',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        origin: { type: 'string', description: 'IATA code for the departure airport, e.g. "JFK"' },
+        destination: { type: 'string', description: 'IATA code for the arrival airport, e.g. "LHR"' },
+        departure_date: { type: 'string', description: 'Departure date in YYYY-MM-DD format' },
+        return_date: { type: 'string', description: 'Return date in YYYY-MM-DD format for round trips (optional)' },
+        cabin_class: { type: 'string', description: 'Cabin class: "economy", "premium_economy", "business", or "first" (optional, default economy)' },
+        max_stops: { type: 'string', description: 'Max stops: "0" or "non_stop" for nonstop, "1" or "one_stop" for max one stop, or omit for any (optional)' },
+        passengers: { type: 'number', description: 'Number of passengers (1-9, default 1)' },
+        sort_by: { type: 'string', description: 'Sort order: "price" (cheapest), "duration", "departure", or "arrival" (optional)' },
+      },
+      required: ['origin', 'destination', 'departure_date'],
+    },
+    _execute: async (params, base, apiKey) => {
+      const qs = new URLSearchParams({
+        origin: String(params.origin ?? ''),
+        destination: String(params.destination ?? ''),
+        departure_date: String(params.departure_date ?? ''),
+        ...(params.return_date ? { return_date: String(params.return_date) } : {}),
+        ...(params.cabin_class ? { cabin_class: String(params.cabin_class) } : {}),
+        ...(params.max_stops ? { max_stops: String(params.max_stops) } : {}),
+        ...(params.sort_by ? { sort_by: String(params.sort_by) } : {}),
+        passengers: String(Math.max(1, Math.min(Number(params.passengers ?? 1), 9))),
+      });
+      const res = await fetch(`${base}/api/aviation/v1/search-google-flights?${qs}`, {
+        headers: { 'X-WorldMonitor-Key': apiKey, 'User-Agent': 'worldmonitor-mcp-edge/1.0' },
+        signal: AbortSignal.timeout(25_000),
+      });
+      if (!res.ok) throw new Error(`search-google-flights HTTP ${res.status}`);
+      return res.json();
+    },
+  },
+  {
+    name: 'search_flight_prices_by_date',
+    description: 'Search Google Flights date-grid pricing across a date range. Returns cheapest prices for each departure date between two airports. Useful for finding the cheapest day to fly. Use IATA airport codes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        origin: { type: 'string', description: 'IATA code for the departure airport, e.g. "JFK"' },
+        destination: { type: 'string', description: 'IATA code for the arrival airport, e.g. "LHR"' },
+        start_date: { type: 'string', description: 'Start of the date range in YYYY-MM-DD format' },
+        end_date: { type: 'string', description: 'End of the date range in YYYY-MM-DD format' },
+        is_round_trip: { type: 'boolean', description: 'Whether to search round-trip prices (default false). Requires trip_duration when true.' },
+        trip_duration: { type: 'number', description: 'Trip duration in days — required when is_round_trip is true (e.g. 7 for a one-week trip)' },
+        cabin_class: { type: 'string', description: 'Cabin class: "economy", "premium_economy", "business", or "first" (optional)' },
+        passengers: { type: 'number', description: 'Number of passengers (1-9, default 1)' },
+        sort_by_price: { type: 'boolean', description: 'Sort results by price ascending (default false, sorts by date)' },
+      },
+      required: ['origin', 'destination', 'start_date', 'end_date'],
+    },
+    _execute: async (params, base, apiKey) => {
+      const qs = new URLSearchParams({
+        origin: String(params.origin ?? ''),
+        destination: String(params.destination ?? ''),
+        start_date: String(params.start_date ?? ''),
+        end_date: String(params.end_date ?? ''),
+        is_round_trip: String(params.is_round_trip ?? false),
+        ...(params.trip_duration ? { trip_duration: String(params.trip_duration) } : {}),
+        ...(params.cabin_class ? { cabin_class: String(params.cabin_class) } : {}),
+        sort_by_price: String(params.sort_by_price ?? false),
+        passengers: String(Math.max(1, Math.min(Number(params.passengers ?? 1), 9))),
+      });
+      const res = await fetch(`${base}/api/aviation/v1/search-google-dates?${qs}`, {
+        headers: { 'X-WorldMonitor-Key': apiKey, 'User-Agent': 'worldmonitor-mcp-edge/1.0' },
+        signal: AbortSignal.timeout(25_000),
+      });
+      if (!res.ok) throw new Error(`search-google-dates HTTP ${res.status}`);
       return res.json();
     },
   },
