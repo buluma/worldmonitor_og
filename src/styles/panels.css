@@ -2141,6 +2141,12 @@
   min-height: 150px;
 }
 
+@media (min-width: 1600px) {
+  .main-content.map-width-extend-2 .map-bottom-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
 /* ── DeductionPanel ─────────────────────────────────────── */
 .deduction-panel-content {
   display: flex; flex-direction: column; gap: 10px;

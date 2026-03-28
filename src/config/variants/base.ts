@@ -82,6 +82,7 @@ export const STORAGE_KEYS = {
   disabledFeeds: 'worldmonitor-disabled-feeds',
   liveChannels: 'worldmonitor-live-channels',
   mapMode: 'worldmonitor-map-mode',          // 'flat' | 'globe'
+  mapWidthMode: 'worldmonitor-map-width-mode', // 'default' | 'extend-1' | 'extend-2'
   activeChannel: 'worldmonitor-active-channel',
   webcamPrefs: 'worldmonitor-webcam-prefs',
 } as const;

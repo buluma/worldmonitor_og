@@ -105,6 +105,32 @@ const WEB_PREMIUM_PANELS = new Set([
   'deduction',
 ]);
 
+type MapWidthMode = 'default' | 'extend-1' | 'extend-2' | 'hide';
+
+const MAP_WIDTH_MODE_VALUES = new Set<MapWidthMode>(['default', 'extend-1', 'extend-2', 'hide']);
+const MAP_WIDTH_MODE_CLASSES: Record<MapWidthMode, string> = {
+  default: 'map-width-default',
+  'extend-1': 'map-width-extend-1',
+  'extend-2': 'map-width-extend-2',
+  hide: 'map-width-hide',
+};
+const MAP_WIDTH_MODE_FORCE_BOTTOM: Record<MapWidthMode, string[]> = {
+  default: [],
+  'extend-1': ['insights', 'strategic-posture'],
+  'extend-2': ['insights', 'strategic-posture', 'cii', 'strategic-risk'],
+  hide: [],
+};
+const ULTRA_WIDE_BREAKPOINT_PX = 1600;
+
+function isMapWidthMode(value: string | null | undefined): value is MapWidthMode {
+  return value != null && MAP_WIDTH_MODE_VALUES.has(value as MapWidthMode);
+}
+
+function loadMapWidthMode(): MapWidthMode {
+  const stored = loadFromStorage<string>(STORAGE_KEYS.mapWidthMode, 'default');
+  return isMapWidthMode(stored) ? stored : 'default';
+}
+
 export interface PanelLayoutManagerCallbacks {
   openCountryStory: (code: string, name: string) => void;
   openCountryBrief: (code: string) => void;
@@ -119,11 +145,15 @@ export class PanelLayoutManager implements AppModule {
   private panelDragCleanupHandlers: Array<() => void> = [];
   private resolvedPanelOrder: string[] = [];
   private bottomSetMemory: Set<string> = new Set();
+  private mapWidthMode: MapWidthMode = loadMapWidthMode();
   private criticalBannerEl: HTMLElement | null = null;
   private aviationCommandBar: AviationCommandBar | null = null;
   private readonly applyTimeRangeFilterDebounced: (() => void) & { cancel(): void };
   private unsubscribeAuth: (() => void) | null = null;
   private proBlockUnsubscribe: (() => void) | null = null;
+  private readonly boundEnsureCorrectZones = () => this.ensureCorrectZones();
+  private wasUltraWide = false;
+  private lastAppliedMapWidthMode: MapWidthMode = 'default';
 
   constructor(ctx: AppContext, callbacks: PanelLayoutManagerCallbacks) {
     this.ctx = ctx;
@@ -135,6 +165,8 @@ export class PanelLayoutManager implements AppModule {
 
   init(): void {
     this.renderLayout();
+    this.bindMapWidthModeControls();
+    this.applyMapWidthMode();
     this.unsubscribeAuth = subscribeAuthState((state) => {
       this.updatePanelGating(state);
     });
@@ -170,7 +202,7 @@ export class PanelLayoutManager implements AppModule {
     this.aviationCommandBar = null;
     this.ctx.panels['airline-intel']?.destroy();
 
-    window.removeEventListener('resize', this.ensureCorrectZones);
+    window.removeEventListener('resize', this.boundEnsureCorrectZones);
   }
 
   private updatePanelGating(state: AuthSession): void {
@@ -393,7 +425,11 @@ export class PanelLayoutManager implements AppModule {
         </button>`
       ).join('')}
       </div>
-      <div class="main-content">
+      <div class="main-content ${MAP_WIDTH_MODE_CLASSES[this.getResponsiveMapWidthMode()]}">
+        <div class="map-width-restore" id="mapWidthRestore">
+          <span class="map-width-restore-label">Panels Only</span>
+          ${this.renderMapWidthToggle('restore')}
+        </div>
         <div class="map-section" id="mapSection">
           <div class="panel-header">
             <div class="panel-header-left">
@@ -405,6 +441,7 @@ export class PanelLayoutManager implements AppModule {
                 <button class="map-dim-btn${loadFromStorage<string>(STORAGE_KEYS.mapMode, 'flat') === 'globe' ? '' : ' active'}" data-mode="flat" title="2D Map">2D</button>
                 <button class="map-dim-btn${loadFromStorage<string>(STORAGE_KEYS.mapMode, 'flat') === 'globe' ? ' active' : ''}" data-mode="globe" title="3D Globe">3D</button>
               </div>
+              ${this.renderMapWidthToggle('header')}
               <button class="map-pin-btn" id="mapFullscreenBtn" title="Fullscreen">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
               </button>
@@ -475,6 +512,60 @@ export class PanelLayoutManager implements AppModule {
       localStorage.setItem('mobile-map-collapsed', String(isCollapsed));
       if (!isCollapsed) window.dispatchEvent(new Event('resize'));
     });
+  }
+
+  private bindMapWidthModeControls(): void {
+    document.querySelectorAll<HTMLElement>('.map-width-toggle').forEach((toggle) => {
+      toggle.addEventListener('click', (event) => {
+        const target = event.target as HTMLElement | null;
+        const button = target?.closest<HTMLButtonElement>('.map-width-btn');
+        const nextMode = button?.dataset.mapWidthMode;
+        if (!button || !isMapWidthMode(nextMode) || nextMode === this.mapWidthMode) return;
+        this.setMapWidthMode(nextMode);
+      });
+    });
+  }
+
+  private setMapWidthMode(mode: MapWidthMode): void {
+    if (mode === this.mapWidthMode) return;
+    this.mapWidthMode = mode;
+    localStorage.setItem(STORAGE_KEYS.mapWidthMode, mode);
+    this.applyMapWidthMode();
+    this.ensureCorrectZones(true);
+    this.syncMapAfterWidthModeChange();
+  }
+
+  private applyMapWidthMode(): void {
+    const mainContent = document.querySelector('.main-content');
+    if (!mainContent) return;
+    mainContent.classList.remove(...Object.values(MAP_WIDTH_MODE_CLASSES));
+    mainContent.classList.add(MAP_WIDTH_MODE_CLASSES[this.getResponsiveMapWidthMode()]);
+
+    document.querySelectorAll<HTMLButtonElement>('.map-width-btn').forEach((button) => {
+      button.classList.toggle('active', button.dataset.mapWidthMode === this.mapWidthMode);
+    });
+  }
+
+  private syncMapAfterWidthModeChange(delayMs = 320): void {
+    const sync = () => {
+      this.ctx.map?.setIsResizing(false);
+      this.ctx.map?.resize();
+    };
+
+    requestAnimationFrame(sync);
+    window.setTimeout(sync, delayMs);
+  }
+
+  private renderMapWidthToggle(location: 'header' | 'restore'): string {
+    const locationClass = location === 'header' ? ' map-width-toggle-header' : ' map-width-toggle-restore';
+    return `
+      <div class="map-width-toggle${locationClass}" role="group" aria-label="Map width mode">
+        <button class="map-width-btn${this.mapWidthMode === 'default' ? ' active' : ''}" data-map-width-mode="default" title="Default map width">DEF</button>
+        <button class="map-width-btn${this.mapWidthMode === 'extend-1' ? ' active' : ''}" data-map-width-mode="extend-1" title="Extend map by one block">+1</button>
+        <button class="map-width-btn${this.mapWidthMode === 'extend-2' ? ' active' : ''}" data-map-width-mode="extend-2" title="Extend map by two blocks">+2</button>
+        <button class="map-width-btn${this.mapWidthMode === 'hide' ? ' active' : ''}" data-map-width-mode="hide" title="Hide map and show panels only">OFF</button>
+      </div>
+    `;
   }
 
   renderCriticalBanner(postures: TheaterPostureSummary[]): void {
@@ -1111,6 +1202,7 @@ export class PanelLayoutManager implements AppModule {
     this.bottomSetMemory = bottomSet;
     const effectiveUltraWide = this.getEffectiveUltraWide();
     this.wasUltraWide = effectiveUltraWide;
+    this.lastAppliedMapWidthMode = this.getEffectiveMapWidthMode();
 
     const hasSavedOrder = savedOrder.length > 0;
     let allOrder: string[];
@@ -1166,11 +1258,12 @@ export class PanelLayoutManager implements AppModule {
 
     this.resolvedPanelOrder = allOrder;
 
+    const effectiveBottomSet = this.getEffectiveBottomSet();
     const sidebarOrder = effectiveUltraWide
-      ? allOrder.filter(k => !this.bottomSetMemory.has(k))
+      ? allOrder.filter(k => !effectiveBottomSet.has(k))
       : allOrder;
     const bottomOrder = effectiveUltraWide
-      ? allOrder.filter(k => this.bottomSetMemory.has(k))
+      ? allOrder.filter(k => effectiveBottomSet.has(k))
       : [];
 
     sidebarOrder.forEach((key: string) => {
@@ -1268,7 +1361,7 @@ export class PanelLayoutManager implements AppModule {
       });
     }
 
-    window.addEventListener('resize', () => this.ensureCorrectZones());
+    window.addEventListener('resize', this.boundEnsureCorrectZones);
 
     this.ctx.map.onTimeRangeChanged((range) => {
       this.ctx.currentTimeRange = range;
@@ -1537,7 +1630,29 @@ export class PanelLayoutManager implements AppModule {
   private getEffectiveUltraWide(): boolean {
     const mapSection = document.getElementById('mapSection');
     const mapEnabled = !mapSection?.classList.contains('hidden');
-    return window.innerWidth >= 1600 && mapEnabled;
+    return window.innerWidth >= ULTRA_WIDE_BREAKPOINT_PX && mapEnabled && this.getResponsiveMapWidthMode() !== 'hide';
+  }
+
+  private getResponsiveMapWidthMode(): MapWidthMode {
+    return window.innerWidth >= ULTRA_WIDE_BREAKPOINT_PX ? this.mapWidthMode : 'default';
+  }
+
+  private getEffectiveMapWidthMode(): MapWidthMode {
+    return this.getResponsiveMapWidthMode();
+  }
+
+  private getModeForcedBottomSet(mode: MapWidthMode = this.getEffectiveMapWidthMode()): Set<string> {
+    return new Set(MAP_WIDTH_MODE_FORCE_BOTTOM[mode]);
+  }
+
+  private isModeForcedBottomPanel(id: string, mode: MapWidthMode = this.getEffectiveMapWidthMode()): boolean {
+    return this.getModeForcedBottomSet(mode).has(id);
+  }
+
+  private getEffectiveBottomSet(mode: MapWidthMode = this.getEffectiveMapWidthMode()): Set<string> {
+    const effective = new Set(this.bottomSetMemory);
+    this.getModeForcedBottomSet(mode).forEach((id) => effective.add(id));
+    return effective;
   }
 
   private insertByOrder(grid: HTMLElement, el: HTMLElement, key: string): void {
@@ -1551,17 +1666,17 @@ export class PanelLayoutManager implements AppModule {
     grid.appendChild(el);
   }
 
-  private wasUltraWide = false;
-
-  public ensureCorrectZones(): void {
+  public ensureCorrectZones(force = false): void {
     const effectiveUltraWide = this.getEffectiveUltraWide();
-
-    if (effectiveUltraWide === this.wasUltraWide) return;
+    const effectiveMapWidthMode = this.getEffectiveMapWidthMode();
+    if (!force && effectiveUltraWide === this.wasUltraWide && effectiveMapWidthMode === this.lastAppliedMapWidthMode) return;
     this.wasUltraWide = effectiveUltraWide;
+    this.lastAppliedMapWidthMode = effectiveMapWidthMode;
 
     const grid = document.getElementById('panelsGrid');
     const bottomGrid = document.getElementById('mapBottomGrid');
     if (!grid || !bottomGrid) return;
+    const effectiveBottomSet = this.getEffectiveBottomSet(effectiveMapWidthMode);
 
     if (!effectiveUltraWide) {
       const panelsInBottom = Array.from(bottomGrid.querySelectorAll('.panel')) as HTMLElement[];
@@ -1571,7 +1686,13 @@ export class PanelLayoutManager implements AppModule {
         this.insertByOrder(grid, panelEl, id);
       });
     } else {
-      this.bottomSetMemory.forEach(id => {
+      const panelsInBottom = Array.from(bottomGrid.querySelectorAll('.panel')) as HTMLElement[];
+      panelsInBottom.forEach(panelEl => {
+        const id = panelEl.dataset.panel;
+        if (!id || effectiveBottomSet.has(id)) return;
+        this.insertByOrder(grid, panelEl, id);
+      });
+      effectiveBottomSet.forEach(id => {
         const el = grid.querySelector(`[data-panel="${CSS.escape(id)}"]`);
         if (el) {
           this.insertByOrder(bottomGrid, el as HTMLElement, id);
@@ -1644,7 +1765,7 @@ export class PanelLayoutManager implements AppModule {
       this.makeDraggable(el, key);
 
       const bottomGrid = document.getElementById('mapBottomGrid');
-      if (bottomGrid && this.getEffectiveUltraWide() && this.bottomSetMemory.has(key)) {
+      if (bottomGrid && this.getEffectiveUltraWide() && this.getEffectiveBottomSet().has(key)) {
         this.insertByOrder(bottomGrid, el, key);
       } else {
         const grid = document.getElementById('panelsGrid');
@@ -1954,12 +2075,15 @@ export class PanelLayoutManager implements AppModule {
 
         // Update status
         const isInBottom = !!el.closest('.map-bottom-grid');
-        if (isInBottom) {
+        if (isInBottom && !this.isModeForcedBottomPanel(key)) {
           this.bottomSetMemory.add(key);
         } else {
           this.bottomSetMemory.delete(key);
         }
         this.savePanelOrder();
+        if (this.isModeForcedBottomPanel(key)) {
+          this.ensureCorrectZones(true);
+        }
       }
       dragStarted = false;
       if (onKeyDown) {
