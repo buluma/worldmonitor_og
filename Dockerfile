@@ -11,6 +11,12 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
+# Docker Desktop self-hosted builds often run under tighter memory ceilings than
+# CI/managed deploys. Cap V8 heap growth and mark this as a Docker build so the
+# Vite config can skip optional post-build compression work.
+ENV NODE_OPTIONS="--max-old-space-size=2048 --dns-result-order=ipv4first"
+ENV WM_DOCKER_BUILD=1
+
 # Install root dependencies (layer-cached until package.json changes)
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts

@@ -606,6 +606,7 @@ export default defineConfig(({ mode }) => {
 
   const isE2E = process.env.VITE_E2E === '1';
   const isDesktopBuild = process.env.VITE_DESKTOP_RUNTIME === '1';
+  const isDockerBuild = process.env.WM_DOCKER_BUILD === '1';
   const activeVariant = process.env.VITE_VARIANT || 'full';
   const activeMeta = VARIANT_META[activeVariant] || VARIANT_META.full;
 
@@ -620,7 +621,7 @@ export default defineConfig(({ mode }) => {
       youtubeLivePlugin(),
       gpsjamDevPlugin(),
       sebufApiPlugin(),
-      brotliPrecompressPlugin(),
+      ...(!isDockerBuild ? [brotliPrecompressPlugin()] : []),
       VitePWA({
         registerType: 'autoUpdate',
         injectRegister: false,
@@ -768,6 +769,9 @@ export default defineConfig(({ mode }) => {
       // Geospatial bundles (maplibre/deck) are expected to be large even when split.
       // Raise warning threshold to reduce noisy false alarms in CI.
       chunkSizeWarningLimit: 1200,
+      // Computing compressed-size stats is expensive and does not materially help
+      // the self-hosted Docker image build path.
+      reportCompressedSize: !isDockerBuild,
       rollupOptions: {
         onwarn(warning, warn) {
           // onnxruntime-web ships a minified browser bundle that intentionally uses eval.
