@@ -1,0 +1,36 @@
+name: 'Upstream Sync'
+
+on:
+  schedule:
+    - cron:  '0 5 * * *'    # Runs daily
+  workflow_dispatch:        # Allows manual trigger via button
+
+jobs:
+  sync_latest_from_upstream:
+    runs-on: ubuntu-latest
+    name: Sync latest commits from upstream repo
+
+    steps:
+    # Step 1: Checkout your fork repository
+    - name: Checkout target repo
+      uses: actions/checkout@v6
+      with:
+        token: ${{ github.token }} # Use the Secret you configured earlier
+
+    # Step 2: Run the sync action
+    - name: Sync upstream changes
+      id: sync
+      uses: aormsby/Fork-Sync-With-Upstream-action@v3.4.2
+      with:
+        upstream_sync_repo: koala73/worldmonitor   # [TO MODIFY] Set to the original author's repo path
+        upstream_sync_branch: main                 # [TO MODIFY] Original repo's main branch name
+        target_sync_branch: main                   # Your sync target branch
+        target_repo_token: ${{ github.token }}     # Ensure Secret name matches
+
+        # Strategy settings
+        test_mode: false # Set to true to test without pushing
+
+    # Step 3: Check sync result (optional)
+    - name: Check for errors
+      if: failure()
+      run: echo "Sync failed, there may be conflicts. Please resolve manually."
