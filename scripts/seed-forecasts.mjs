@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { loadEnvFile, runSeed, CHROME_UA } from './_seed-utils.mjs';
 import { tagRegions } from './_prediction-scoring.mjs';
 import { resolveR2StorageConfig, putR2JsonObject, getR2JsonObject } from './_r2-storage.mjs';
+import { extractFirstJsonObject, extractFirstJsonArray, cleanJsonText } from './_llm-json.mjs';
 
 const _isDirectRun = process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'));
 if (_isDirectRun) loadEnvFile(import.meta.url);
@@ -158,9 +159,9 @@ const CHOKEPOINT_MARKET_REGIONS = {
 };
 
 const THEATER_GEO_GROUPS = {
-  'Middle East': 'MENA',
-  'Red Sea': 'MENA',
-  'Persian Gulf': 'MENA',
+  'Middle East': 'MENA_Gulf',       // Strait of Hormuz, Persian Gulf, Arabian Sea, Iran
+  'Persian Gulf': 'MENA_Gulf',
+  'Red Sea': 'MENA_RedSea',         // Red Sea, Bab el-Mandeb, Suez Canal
   'South China Sea': 'AsiaPacific',
   'Western Pacific': 'AsiaPacific',
   'Southeast Asia': 'AsiaPacific',
@@ -3188,39 +3189,9 @@ async function extractCriticalSignalBundle(inputs) {
   return bundle;
 }
 
-function extractFirstJsonObject(text) {
-  const start = text.indexOf('{');
-  if (start === -1) return '';
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let i = start; i < text.length; i++) {
-    const char = text[i];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (char === '\\') {
-      escaped = true;
-      continue;
-    }
-    if (char === '"') {
-      inString = !inString;
-      continue;
-    }
-    if (inString) continue;
-    if (char === '{') depth += 1;
-    if (char === '}') {
-      depth -= 1;
-      if (depth === 0) return text.slice(start, i + 1);
-    }
-  }
-  return text.slice(start);
-}
-
 function tryParseImpactExpansionCandidate(candidate) {
   try {
-    const parsed = JSON.parse(candidate);
+    const parsed = JSON.parse(cleanJsonText(candidate));
     if (Array.isArray(parsed?.candidates)) return { candidates: parsed.candidates, stage: 'object_candidates' };
     if (Array.isArray(parsed)) return { candidates: parsed, stage: 'direct_array' };
   } catch {
@@ -3229,7 +3200,7 @@ function tryParseImpactExpansionCandidate(candidate) {
   // Gemini sometimes returns '"candidates": [...]' without outer braces (especially when
   // wrapping in a markdown code fence). Try wrapping in {} to recover.
   try {
-    const wrapped = JSON.parse(`{${candidate}}`);
+    const wrapped = JSON.parse(cleanJsonText(`{${candidate}}`));
     if (Array.isArray(wrapped?.candidates)) return { candidates: wrapped.candidates, stage: 'wrapped_candidates' };
   } catch {
     // continue
@@ -11284,14 +11255,14 @@ const BUCKET_KEYWORDS = {
 };
 
 const CHANNEL_KEYWORDS = {
-  energy_supply_shock: ['oil supply', 'crude supply', 'energy supply', 'oil shock', 'energy shock', 'petroleum supply'],
+  energy_supply_shock: ['oil supply', 'crude supply', 'energy supply', 'oil shock', 'energy shock', 'petroleum supply', 'oil infrastructure', 'supply disruption', 'oil price spike', 'crude price', 'energy price'],
   gas_supply_stress: ['gas supply', 'lng supply', 'natural gas', 'gas price'],
   commodity_repricing: ['commodity', 'repricing', 'shortage', 'supply chain'],
   oil_macro_shock: ['oil macro', 'crude macro', 'oil price macro', 'petro macro'],
   global_crude_spread_stress: ['crude spread', 'brent wti', 'grade spread'],
-  shipping_cost_shock: ['shipping cost', 'freight cost', 'freight rate', 'route disruption', 'chokepoint', 'transit'],
+  shipping_cost_shock: ['shipping cost', 'freight cost', 'freight rate', 'route disruption', 'chokepoint', 'transit', 'shipping interrupt', 'rerouting', 'vessel', 'shipping lane', 'maritime'],
   sovereign_stress: ['sovereign', 'debt stress', 'default risk', 'credit stress', 'bond spread'],
-  risk_off_rotation: ['risk off', 'risk aversion', 'flight to safety', 'sell off', 'selloff', 'sell-off', 'capital flight', 'capital outflow', 'risk premium', 'avers', 'retreat', 'flight to'],
+  risk_off_rotation: ['risk off', 'risk aversion', 'flight to safety', 'sell off', 'selloff', 'sell-off', 'capital flight', 'capital outflow', 'risk premium', 'avers', 'retreat', 'flight to', 'sovereign risk', 'shockwave', 'shock wave', 'economic shock', 'contagion', 'spiral', 'crisis'],
   security_escalation: ['escalat', 'military action', 'conflict', 'war', 'strike', 'attack', 'military', 'geopolit'],
   yield_curve_stress: ['yield curve', 'yield spread', 'term premium'],
   volatility_shock: ['volatility', 'vix', 'vol spike'],
@@ -11374,7 +11345,7 @@ function negatesDisruption(stabilizer, candidatePacket) {
   }
   // Non-maritime: match on stateKind and bucket keywords.
   const stateKind = candidatePacket?.stateKind || '';
-  const bucket = candidatePacket?.marketContext?.topBucketId || '';
+  const bucket = candidatePacket?.marketContext?.topBucketId || candidatePacket?.topBucketId || '';
   const subjectKeywords = [...stateKind.toLowerCase().split('_'), ...bucket.toLowerCase().split('_')]
     .filter((w) => w.length >= 4);
   return subjectKeywords.some((kw) => text.includes(kw));
@@ -11388,12 +11359,27 @@ function negatesDisruption(stabilizer, candidatePacket) {
  */
 function computeSimulationAdjustment(expandedPath, simTheaterResult, candidatePacket) {
   let adjustment = 0;
-  const details = { bucketChannelMatch: false, actorOverlapCount: 0, invalidatorHit: false, stabilizerHit: false };
+  const details = { bucketChannelMatch: false, actorOverlapCount: 0, invalidatorHit: false, stabilizerHit: false, resolvedChannel: '', channelSource: 'none' };
 
   const { topPaths = [], invalidators = [], stabilizers = [] } = simTheaterResult || {};
-  const pathBucket = expandedPath?.direct?.targetBucket || candidatePacket?.marketContext?.topBucketId || '';
-  const pathChannel = expandedPath?.direct?.channel || candidatePacket?.marketContext?.topChannel || '';
+  const pathBucket = expandedPath?.direct?.targetBucket
+    || candidatePacket?.marketContext?.topBucketId
+    || candidatePacket?.topBucketId
+    || '';
+  const directChannel = expandedPath?.direct?.channel || '';
+  const marketChannel = candidatePacket?.marketContext?.topChannel || candidatePacket?.topChannel || '';
+  const pathChannel = Object.hasOwn(CHANNEL_KEYWORDS, directChannel)
+    ? directChannel
+    : Object.hasOwn(CHANNEL_KEYWORDS, marketChannel)
+      ? marketChannel
+      : '';
   const pathActors = extractPathActors(expandedPath);
+  details.resolvedChannel = pathChannel;
+  details.channelSource = Object.hasOwn(CHANNEL_KEYWORDS, directChannel)
+    ? 'direct'
+    : Object.hasOwn(CHANNEL_KEYWORDS, marketChannel)
+      ? 'market'
+      : 'none';
 
   const bucketChannelMatch = topPaths.find(
     (sp) => matchesBucket(sp, pathBucket) && matchesChannel(sp, pathChannel)
@@ -14016,39 +14002,9 @@ function extractStructuredLlmPayload(text) {
   };
 }
 
-function extractFirstJsonArray(text) {
-  const start = text.indexOf('[');
-  if (start === -1) return '';
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let i = start; i < text.length; i++) {
-    const char = text[i];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (char === '\\') {
-      escaped = true;
-      continue;
-    }
-    if (char === '"') {
-      inString = !inString;
-      continue;
-    }
-    if (inString) continue;
-    if (char === '[') depth += 1;
-    if (char === ']') {
-      depth -= 1;
-      if (depth === 0) return text.slice(start, i + 1);
-    }
-  }
-  return text.slice(start);
-}
-
 function tryParseStructuredCandidate(candidate) {
   try {
-    const parsed = JSON.parse(candidate);
+    const parsed = JSON.parse(cleanJsonText(candidate));
     if (Array.isArray(parsed)) return { items: parsed, stage: 'direct_array' };
     if (Array.isArray(parsed?.items)) return { items: parsed.items, stage: 'object_items' };
     if (Array.isArray(parsed?.scenarios)) return { items: parsed.scenarios, stage: 'object_scenarios' };
@@ -14059,7 +14015,7 @@ function tryParseStructuredCandidate(candidate) {
       const partial = candidate.slice(bracketIdx);
       for (const suffix of ['"}]', '}]', '"]', ']']) {
         try {
-          const repaired = JSON.parse(partial + suffix);
+          const repaired = JSON.parse(cleanJsonText(partial + suffix));
           if (Array.isArray(repaired)) return { items: repaired, stage: 'repaired_array' };
         } catch {
           // continue
