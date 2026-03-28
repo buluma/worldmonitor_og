@@ -8,14 +8,12 @@ WorldMonitor's seed scripts are designed as scheduled jobs, not ad-hoc helpers. 
 - `seed-runner` for executing `scripts/seed-*.mjs`
 - `scheduler` (Ofelia) for running grouped seed lanes inside `seed-runner`
 
-The Compose profile is opt-in, so the default stack stays unchanged.
-
 The source of truth for lane membership, cadence, timeout, and lightweight dependency notes is `scripts/seed-scheduler-manifest.mjs`.
 
 ## Start the stack with the scheduler
 
 ```bash
-docker compose --profile scheduler up -d --build
+docker compose up -d --build
 ```
 
 ## Scheduled lanes
@@ -48,6 +46,6 @@ docker compose exec seed-runner tail -f /tmp/wm-seeders.log
 
 ## Environment notes
 
-- The scheduler profile rewires seed Redis traffic to `http://redis-rest:80`.
+- The default Compose stack rewires seed Redis traffic to `http://redis-rest:80`.
 - The service-status warm-ping script can target the self-hosted app through `WM_RPC_BASE_URL` instead of the public production API.
-- On macOS and Raspberry Pi, this profile uses the same Docker Compose topology. The only platform-specific requirement is using images/dependencies that work on your host architecture.
+- On macOS and Raspberry Pi, the same Docker Compose topology is used. The only platform-specific requirement is using images/dependencies that work on your host architecture.

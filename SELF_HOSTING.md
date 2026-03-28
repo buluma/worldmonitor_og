@@ -19,14 +19,13 @@ npm install
 # 2. Start the stack
 docker compose up -d        # or: uvx podman-compose up -d
 
-# 3. Seed data into Redis
-./scripts/run-seeders.sh
-
-# 4. Open the dashboard
+# 3. Open the dashboard
 open http://localhost:3000
 ```
 
 The dashboard works out of the box with public data sources (earthquakes, weather, conflicts, etc.). API keys unlock additional data feeds.
+
+The default Compose stack now includes the `seed-runner` and `scheduler` services, so `docker compose up -d` and `docker compose down` operate on the full self-hosted stack as one project.
 
 `/api/health` runs in self-hosted mode inside the Docker stack. Optional or premium-gated feeds are reported as `OK_OPTIONAL` instead of failing base stack readiness, so local health reflects what a self-host deployment can actually support.
 
@@ -83,11 +82,17 @@ services:
 
 ## 🌱 Seeding Data
 
-The seed scripts fetch upstream data and write it to Redis. They run **on the host** (not inside the container) and need the Redis REST proxy to be running.
+The seed scripts fetch upstream data and write it to Redis. In the default self-hosted stack they run continuously inside the `seed-runner` container under the `scheduler` service.
+
+If you want an immediate one-off refresh instead of waiting for the next scheduled lane:
 
 ```bash
-# Run all seeders (auto-sources API keys from docker-compose.override.yml)
+# Run all seeders from the host (auto-sources API keys from docker-compose.override.yml)
 ./scripts/run-seeders.sh
+
+# Or run one lane inside the stack
+docker compose exec seed-runner /app/scripts/wm-cron-seeder.sh frequent
+docker compose exec seed-runner /app/scripts/wm-cron-seeder.sh hourly
 ```
 
 `run-seeders.sh` now enforces a per-script timeout so one slow upstream does not block the full local seed cycle. Override the default 180 seconds if needed:

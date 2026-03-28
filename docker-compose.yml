@@ -1,7 +1,7 @@
 # =============================================================================
 # World Monitor — Docker / Podman Compose
 # =============================================================================
-# Self-contained stack: app + Redis + AIS relay.
+# Self-contained stack: app + Redis + AIS relay + seed scheduler.
 #
 # Quick start:
 #   cp .env.example .env        # add your API keys
@@ -97,8 +97,6 @@ services:
       dockerfile: Dockerfile.seeder
     image: worldmonitor-seeder:latest
     container_name: worldmonitor-seeder
-    profiles:
-      - scheduler
     env_file:
       - .env.local
     environment:
@@ -137,8 +135,6 @@ services:
   scheduler:
     image: mcuadros/ofelia:latest
     container_name: worldmonitor-scheduler
-    profiles:
-      - scheduler
     command: ["daemon", "--docker"]
     environment:
       TZ: "${TZ:-UTC}"
