@@ -23,6 +23,13 @@ const MAX_ITEMS_PER_CATEGORY = 20;
 const FEED_TIMEOUT_MS = 8_000;
 const OVERALL_DEADLINE_MS = 25_000;
 const BATCH_CONCURRENCY = 20;
+const AFRICA_PRIORITY_TERMS = [
+  'sahel', 'horn', 'sudan', 'somalia', 'ethiopia', 'eritrea', 'djibouti',
+  'congo', 'cameroon', 'chad', 'nigeria', 'ghana', 'senegal', 'uganda',
+  'rwanda', 'burundi', 'tanzania', 'kenya', 'south africa', 'zimbabwe',
+  'zambia', 'mozambique', 'namibia', 'botswana', 'angola', 'ivory coast',
+  "cote d'ivoire", 'cote d ivoire', 'mali', 'niger', 'burkina',
+];
 
 const LEVEL_TO_PROTO: Record<ThreatLevel, ProtoThreatLevel> = {
   critical: 'THREAT_LEVEL_CRITICAL',
@@ -205,6 +212,66 @@ function decodeXmlEntities(s: string): string {
     .replace(/&#x([0-9a-fA-F]+);/g, (_, n) => String.fromCharCode(parseInt(n, 16)));
 }
 
+function sourceFamily(item: ParsedItem): string {
+  try {
+    const host = new URL(item.link).hostname.replace(/^www\./, '');
+    return host || item.source.toLowerCase();
+  } catch {
+    return item.source.toLowerCase();
+  }
+}
+
+function africaPriorityScore(item: ParsedItem): number {
+  const title = item.title.toLowerCase();
+  let score = 0;
+  for (const term of AFRICA_PRIORITY_TERMS) {
+    if (title.includes(term)) score++;
+  }
+  if (/africa|african/.test(title)) score++;
+  return score;
+}
+
+function rankCategoryItems(category: string, items: ParsedItem[]): ParsedItem[] {
+  const sorted = [...items].sort((a, b) => {
+    if (category === 'africa') {
+      const priority = africaPriorityScore(b) - africaPriorityScore(a);
+      if (priority !== 0) return priority;
+    }
+    return b.publishedAt - a.publishedAt;
+  });
+
+  if (category !== 'africa') return sorted;
+
+  const byFamily = new Map<string, ParsedItem[]>();
+  for (const item of sorted) {
+    const family = sourceFamily(item);
+    const queue = byFamily.get(family) ?? [];
+    queue.push(item);
+    byFamily.set(family, queue);
+  }
+
+  const families = [...byFamily.keys()].sort((a, b) => {
+    const aHead = byFamily.get(a)?.[0]?.publishedAt ?? 0;
+    const bHead = byFamily.get(b)?.[0]?.publishedAt ?? 0;
+    return bHead - aHead;
+  });
+
+  const diversified: ParsedItem[] = [];
+  while (families.length > 0 && diversified.length < sorted.length) {
+    for (let i = 0; i < families.length; i++) {
+      const family = families[i];
+      const queue = byFamily.get(family);
+      const next = queue?.shift();
+      if (next) diversified.push(next);
+      if (!queue || queue.length === 0) {
+        families.splice(i, 1);
+        i--;
+      }
+    }
+  }
+  return diversified;
+}
+
 async function enrichWithAiCache(items: ParsedItem[]): Promise<void> {
   const candidates = items.filter(i => i.classSource === 'keyword');
   if (candidates.length === 0) return;
@@ -355,8 +422,8 @@ async function buildDigest(variant: string, lang: string): Promise<ListFeedDiges
 
     const slicedByCategory = new Map<string, ParsedItem[]>();
     for (const [category, items] of results) {
-      items.sort((a, b) => b.publishedAt - a.publishedAt);
-      slicedByCategory.set(category, items.slice(0, MAX_ITEMS_PER_CATEGORY));
+      const ranked = rankCategoryItems(category, items);
+      slicedByCategory.set(category, ranked.slice(0, MAX_ITEMS_PER_CATEGORY));
     }
 
     const allSliced = [...slicedByCategory.values()].flat();

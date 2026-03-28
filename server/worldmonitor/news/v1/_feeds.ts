@@ -80,6 +80,11 @@ export const VARIANT_FEEDS: Record<string, Record<string, ServerFeed[]>> = {
     africa: [
       { name: 'Africa News', url: gn('(Africa OR Nigeria OR Kenya OR "South Africa" OR Ethiopia) when:2d') },
       { name: 'Sahel Crisis', url: gn('(Sahel OR Mali OR Niger OR "Burkina Faso" OR Wagner) when:3d') },
+      { name: 'East Africa Watch', url: gn('(Kenya OR Tanzania OR Uganda OR Rwanda OR Burundi OR Ethiopia) when:2d') },
+      { name: 'Horn of Africa Watch', url: gn('(Somalia OR Somaliland OR Djibouti OR Eritrea OR Ethiopia OR Sudan OR "South Sudan") when:2d') },
+      { name: 'Central Africa Watch', url: gn('("DR Congo" OR Congo OR Cameroon OR Chad OR Gabon OR "Central African Republic") when:2d') },
+      { name: 'Southern Africa Watch', url: gn('("South Africa" OR Zimbabwe OR Zambia OR Mozambique OR Namibia OR Botswana OR Angola) when:2d') },
+      { name: 'West Africa Watch', url: gn('(Nigeria OR Ghana OR Senegal OR "Ivory Coast" OR "Cote d Ivoire" OR Benin OR Togo) when:2d') },
       { name: 'BBC Africa', url: 'https://feeds.bbci.co.uk/news/world/africa/rss.xml' },
       { name: 'News24', url: 'https://feeds.news24.com/articles/news24/TopStories/rss' },
       { name: 'Africanews', url: 'https://www.africanews.com/feed/rss' },
