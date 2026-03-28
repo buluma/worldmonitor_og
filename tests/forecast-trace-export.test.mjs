@@ -5709,7 +5709,7 @@ describe('simulation package export', () => {
     assert.ok(pkg.selectedTheaters.length <= 3);
   });
 
-  it('geo-dedup: selects at most 1 theater per macro-region group when 2 MENA candidates are present', () => {
+  it('geo-dedup: Strait of Hormuz (MENA_Gulf) and Red Sea (MENA_RedSea) are distinct groups — both selected', () => {
     const hormuz = makeCandidate({
       candidateStateId: 'state-hormuz',
       candidateStateLabel: 'Strait of Hormuz disruption',
@@ -5734,11 +5734,32 @@ describe('simulation package export', () => {
     });
     const pkg = buildSimulationPackageFromDeepSnapshot(makeSnapshot([hormuz, redsea, malacca]));
     assert.ok(pkg, 'package should not be null');
-    assert.equal(pkg.selectedTheaters.length, 2, 'should select exactly 2 theaters (1 MENA + 1 AsiaPacific)');
+    assert.equal(pkg.selectedTheaters.length, 3, 'all 3 should be selected — Hormuz (MENA_Gulf), Red Sea (MENA_RedSea), Malacca (AsiaPacific)');
     const routeKeys = pkg.selectedTheaters.map((t) => t.routeFacilityKey);
-    assert.ok(routeKeys.includes('Strait of Hormuz'), 'should pick the higher-ranked MENA candidate');
-    assert.ok(!routeKeys.includes('Red Sea'), 'should skip the 2nd MENA candidate');
-    assert.ok(routeKeys.includes('Strait of Malacca'), 'should include the AsiaPacific candidate');
+    assert.ok(routeKeys.includes('Strait of Hormuz'), 'Hormuz must be selected');
+    assert.ok(routeKeys.includes('Red Sea'), 'Red Sea must be selected — it is a distinct geo group from Hormuz');
+    assert.ok(routeKeys.includes('Strait of Malacca'), 'Malacca must be selected');
+  });
+
+  it('geo-dedup: Red Sea and Suez Canal are same MENA_RedSea group — only higher-ranked selected', () => {
+    const redsea = makeCandidate({
+      candidateStateId: 'state-redsea',
+      candidateStateLabel: 'Red Sea blockade',
+      routeFacilityKey: 'Red Sea',
+      dominantRegion: 'Red Sea',
+      rankingScore: 0.85,
+    });
+    const suez = makeCandidate({
+      candidateStateId: 'state-suez',
+      candidateStateLabel: 'Suez Canal closure',
+      routeFacilityKey: 'Suez Canal',
+      dominantRegion: 'Red Sea',
+      rankingScore: 0.78,
+    });
+    const pkg = buildSimulationPackageFromDeepSnapshot(makeSnapshot([redsea, suez]));
+    assert.ok(pkg);
+    assert.equal(pkg.selectedTheaters.length, 1, 'only 1 theater — both are MENA_RedSea');
+    assert.equal(pkg.selectedTheaters[0].routeFacilityKey, 'Red Sea', 'higher-ranked Red Sea wins');
   });
 
   it('label cleanup: (stateKind) suffix is stripped from theater label', () => {
@@ -6387,6 +6408,78 @@ describe('phase 3 simulation re-ingestion — computeSimulationAdjustment', () =
     assert.equal(adjustment, 0.08);
     assert.ok(details.actorOverlapCount < 2);
   });
+
+  // Channel resolution tests (Tests A-E): verify tiered fallback and channelSource observability
+  const makeNestedCandidatePkt = (topBucketId, topChannel) => ({
+    candidateStateId: 'state-1',
+    candidateIndex: 0,
+    routeFacilityKey: 'Strait of Hormuz',
+    commodityKey: 'crude_oil',
+    marketContext: { topBucketId, topChannel },
+  });
+
+  const makeFlatCandidatePkt = (topBucketId, topChannel) => ({
+    candidateStateId: 'state-1',
+    candidateIndex: 0,
+    routeFacilityKey: 'Strait of Hormuz',
+    commodityKey: 'crude_oil',
+    topBucketId,
+    topChannel,
+  });
+
+  const riskOffSimResult = {
+    theaterId: 'state-1',
+    topPaths: [{ label: 'Sustained Conflict', summary: 'risk aversion and capital flight amid oil supply concerns', keyActors: [] }],
+    invalidators: [],
+    stabilizers: [],
+  };
+
+  it('T-A: valid LLM channel key (fx_stress) uses directChannel — channelSource=direct', () => {
+    const path = makePath('energy', 'fx_stress', []);
+    const candidatePacket = makeNestedCandidatePkt('energy', 'risk_off_rotation');
+    const { details } = computeSimulationAdjustment(path, riskOffSimResult, candidatePacket);
+    assert.equal(details.channelSource, 'direct');
+    assert.equal(details.resolvedChannel, 'fx_stress');
+  });
+
+  it('T-B: invalid LLM channel (supply_disruption) falls back to nested marketContext.topChannel', () => {
+    const path = makePath('energy', 'supply_disruption', []);
+    const candidatePacket = makeNestedCandidatePkt('energy', 'risk_off_rotation');
+    const { adjustment, details } = computeSimulationAdjustment(path, riskOffSimResult, candidatePacket);
+    assert.equal(details.channelSource, 'market');
+    assert.equal(details.resolvedChannel, 'risk_off_rotation');
+    assert.equal(details.bucketChannelMatch, true);
+    assert.equal(adjustment, 0.08);
+  });
+
+  it('T-C: invalid LLM channel falls back to legacy flat topChannel', () => {
+    const path = makePath('energy', 'supply_disruption', []);
+    const candidatePacket = makeFlatCandidatePkt('energy', 'risk_off_rotation');
+    const { adjustment, details } = computeSimulationAdjustment(path, riskOffSimResult, candidatePacket);
+    assert.equal(details.channelSource, 'market');
+    assert.equal(details.resolvedChannel, 'risk_off_rotation');
+    assert.equal(adjustment, 0.08);
+  });
+
+  it('T-D: invalid LLM channel + no valid marketChannel — channelSource=none, no match', () => {
+    const path = makePath('energy', 'supply_disruption', []);
+    const candidatePacket = makeNestedCandidatePkt('energy', '');
+    const { adjustment, details } = computeSimulationAdjustment(path, riskOffSimResult, candidatePacket);
+    assert.equal(details.channelSource, 'none');
+    assert.equal(details.resolvedChannel, '');
+    assert.equal(details.bucketChannelMatch, false);
+    assert.equal(adjustment, 0);
+  });
+
+  it('T-E: production case — no direct bucket, invalid direct channel, both resolve from marketContext', () => {
+    const path = makePath('', 'supply_disruption', []);
+    const candidatePacket = makeNestedCandidatePkt('energy', 'risk_off_rotation');
+    const { adjustment, details } = computeSimulationAdjustment(path, riskOffSimResult, candidatePacket);
+    assert.equal(details.channelSource, 'market');
+    assert.equal(details.resolvedChannel, 'risk_off_rotation');
+    assert.equal(details.bucketChannelMatch, true);
+    assert.equal(adjustment, 0.08);
+  });
 });
 
 describe('phase 3 simulation re-ingestion — applySimulationMerge', () => {
@@ -6507,6 +6600,22 @@ describe('phase 3 simulation re-ingestion — matching helpers', () => {
 
   it('matchesChannel matches energy_supply_shock via label', () => {
     assert.ok(matchesChannel({ label: 'Crude supply disruption energy', summary: '' }, 'energy_supply_shock'));
+  });
+
+  it('matchesChannel energy_supply_shock matches oil infrastructure scenario (bridge keyword)', () => {
+    assert.ok(matchesChannel({ label: 'Oil infrastructure damage leads to supply disruption', summary: '' }, 'energy_supply_shock'));
+    assert.ok(matchesChannel({ label: 'Crude price spike from Persian Gulf closure', summary: '' }, 'energy_supply_shock'));
+  });
+
+  it('matchesChannel shipping_cost_shock matches maritime rerouting scenario (bridge keyword)', () => {
+    assert.ok(matchesChannel({ label: 'Tanker rerouting via Cape of Good Hope raises freight costs', summary: '' }, 'shipping_cost_shock'));
+    assert.ok(matchesChannel({ label: 'Vessel traffic diverted from Suez Canal shipping lane', summary: '' }, 'shipping_cost_shock'));
+  });
+
+  it('matchesChannel risk_off_rotation matches geopolitical sovereign risk scenario (bridge keyword)', () => {
+    assert.ok(matchesChannel({ label: 'Regional Conflict & Sovereign Risk Spiral', summary: 'rapid repricing of sovereign risk' }, 'risk_off_rotation'));
+    assert.ok(matchesChannel({ label: 'Global Economic Shockwave', summary: '' }, 'risk_off_rotation'));
+    assert.ok(matchesChannel({ label: 'Market contagion from India FX crisis', summary: '' }, 'risk_off_rotation'));
   });
 
   it('matchesChannel returns false for unrelated text', () => {
