@@ -5,6 +5,15 @@ import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import * as http from 'node:http';
+import * as tls from 'node:tls';
+import * as https from 'node:https';
+import { promisify } from 'node:util';
+import { gunzip as _gunzip, inflate as _inflate, brotliDecompress as _brotliDecompress } from 'node:zlib';
+
+const gunzip = promisify(_gunzip);
+const inflate = promisify(_inflate);
+const brotliDecompress = promisify(_brotliDecompress);
 
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36';
 const MAX_PAYLOAD_BYTES = 5 * 1024 * 1024; // 5MB per key
@@ -300,7 +309,7 @@ export function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// ─── Proxy helpers for sources that block Railway container IPs ───
+// ─── Proxy helpers for sources that block Railway/container IPs ───
 const { resolveProxyString } = createRequire(import.meta.url)('./_proxy-utils.cjs');
 
 export function resolveProxy() {
@@ -308,6 +317,8 @@ export function resolveProxy() {
 }
 
 // curl-based fetch; throws on non-2xx. Returns response body as string.
+// NOTE: requires curl binary — only available in Dockerfile.relay (apk add curl).
+// Do NOT call from standalone seed scripts; use fredFetchJson or httpsProxyFetchJson instead.
 export function curlFetch(url, proxyAuth, headers = {}) {
   const args = ['-sS', '--compressed', '--globoff', '--max-time', '15', '-L'];
   if (proxyAuth) args.push('-x', `http://${proxyAuth}`);
@@ -321,12 +332,121 @@ export function curlFetch(url, proxyAuth, headers = {}) {
   return raw.slice(0, nl);
 }
 
+function parseProxyAuth(proxyAuth) {
+  const atIdx = proxyAuth.lastIndexOf('@');
+  const credentials = atIdx >= 0 ? proxyAuth.slice(0, atIdx) : '';
+  const hostPort = atIdx >= 0 ? proxyAuth.slice(atIdx + 1) : proxyAuth;
+  const colonIdx = hostPort.lastIndexOf(':');
+  if (colonIdx === -1) throw new Error('Invalid proxy configuration');
+  return {
+    credentials,
+    proxyHost: hostPort.slice(0, colonIdx),
+    proxyPort: parseInt(hostPort.slice(colonIdx + 1), 10),
+  };
+}
+
+async function decodeCompressedBody(body, contentEncoding = '') {
+  if (contentEncoding.includes('br')) return brotliDecompress(body);
+  if (contentEncoding.includes('gzip')) return gunzip(body);
+  if (contentEncoding.includes('deflate')) return inflate(body);
+  return body;
+}
+
+// Pure Node.js HTTPS-through-HTTP-proxy (CONNECT tunnel).
+// Replaces curlFetch for standalone seed scripts when curl is unavailable.
+// proxyAuth format: "user:pass@host:port"
+async function httpsProxyFetchBuffer(url, proxyAuth, headers = {}, timeoutMs = 20_000) {
+  const targetUrl = new URL(url);
+  if (targetUrl.protocol !== 'https:') throw new Error(`Proxy fallback only supports https URLs: ${url}`);
+  const { credentials, proxyHost, proxyPort } = parseProxyAuth(proxyAuth);
+
+  const connectHeaders = {};
+  if (credentials) {
+    connectHeaders['Proxy-Authorization'] = `Basic ${Buffer.from(credentials).toString('base64')}`;
+  }
+
+  const { socket } = await new Promise((resolve, reject) => {
+    http.request({
+      host: proxyHost, port: proxyPort,
+      method: 'CONNECT',
+      path: `${targetUrl.hostname}:443`,
+      headers: connectHeaders,
+    }).on('connect', (res, socket) => {
+      if (res.statusCode !== 200) {
+        socket.destroy();
+        return reject(Object.assign(new Error(`Proxy CONNECT: ${res.statusCode}`), { status: res.statusCode }));
+      }
+      resolve({ socket });
+    }).on('error', reject).end();
+  });
+
+  const tlsSock = tls.connect({ socket, servername: targetUrl.hostname });
+  await new Promise((resolve, reject) => {
+    tlsSock.on('secureConnect', resolve);
+    tlsSock.on('error', reject);
+  });
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { tlsSock.destroy(); reject(new Error('Proxy fetch timeout')); }, timeoutMs);
+    const fail = (e) => { clearTimeout(timer); tlsSock.destroy(); reject(e); };
+    const requestHeaders = {
+      'Accept-Encoding': 'br, gzip, deflate',
+      'User-Agent': CHROME_UA,
+      ...headers,
+    };
+
+    https.request({
+      host: targetUrl.hostname,
+      path: targetUrl.pathname + targetUrl.search,
+      method: 'GET',
+      headers: requestHeaders,
+      createConnection: () => tlsSock,
+    }, (resp) => {
+      clearTimeout(timer);
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        resp.resume();
+        return reject(Object.assign(new Error(`HTTP ${resp.statusCode}`), { status: resp.statusCode }));
+      }
+      const chunks = [];
+      resp.on('data', c => chunks.push(c));
+      resp.on('end', () => {
+        const body = Buffer.concat(chunks);
+        decodeCompressedBody(body, String(resp.headers['content-encoding'] || ''))
+          .then(resolve)
+          .catch(fail);
+      });
+      resp.on('error', fail);
+    }).on('error', fail).end();
+  });
+}
+
+async function httpsProxyFetchJson(url, proxyAuth, headers = {}, timeoutMs = 20_000) {
+  const body = await httpsProxyFetchBuffer(url, proxyAuth, headers, timeoutMs);
+  return JSON.parse(body.toString('utf8'));
+}
+
+export async function fetchTextWithProxyFallback(url, proxyAuth, headers = {}, timeoutMs = 10_000) {
+  try {
+    const resp = await fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
+    if (!resp.ok) throw Object.assign(new Error(`HTTP ${resp.status}`), { status: resp.status });
+    return resp.text();
+  } catch (directErr) {
+    if (!proxyAuth) throw directErr;
+    const body = await httpsProxyFetchBuffer(url, proxyAuth, headers, timeoutMs);
+    return body.toString('utf8');
+  }
+}
+
 // Fetch JSON from a FRED URL, routing through proxy when available.
 export async function fredFetchJson(url, proxyAuth) {
-  if (proxyAuth) return JSON.parse(curlFetch(url, proxyAuth, { Accept: 'application/json' }));
-  const r = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(10_000) });
-  if (!r.ok) throw Object.assign(new Error(`HTTP ${r.status}`), { status: r.status });
-  return r.json();
+  try {
+    const r = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(10_000) });
+    if (r.ok) return r.json();
+    throw Object.assign(new Error(`HTTP ${r.status}`), { status: r.status });
+  } catch (directErr) {
+    if (!proxyAuth) throw directErr;
+    return httpsProxyFetchJson(url, proxyAuth, { Accept: 'application/json' }, 10_000);
+  }
 }
 
 // Fetch JSON via native fetch, but fall back to curl on transport-level

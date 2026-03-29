@@ -1,25 +1,9 @@
 #!/usr/bin/env node
 
-import { loadEnvFile, CHROME_UA, runSeed, readSeedSnapshot, sleep, resolveProxy } from './_seed-utils.mjs';
-import { execFileSync } from 'child_process';
+import { loadEnvFile, CHROME_UA, runSeed, readSeedSnapshot, sleep, resolveProxy, fetchTextWithProxyFallback } from './_seed-utils.mjs';
 loadEnvFile(import.meta.url);
 
 const _proxyAuth = resolveProxy();
-
-// curl-based fetch for sources that block Railway IPs (Yahoo Finance).
-// Returns response body as string; throws on non-2xx.
-function curlFetch(url, headers = {}) {
-  const args = ['-sS', '--compressed', '--max-time', '15', '-L'];
-  if (_proxyAuth) args.push('-x', `http://${_proxyAuth}`);
-  for (const [k, v] of Object.entries(headers)) args.push('-H', `${k}: ${v}`);
-  args.push('-w', '\n%{http_code}');
-  args.push(url);
-  const raw = execFileSync('curl', args, { encoding: 'utf8', timeout: 20000, stdio: ['pipe', 'pipe', 'pipe'] });
-  const nl = raw.lastIndexOf('\n');
-  const status = parseInt(raw.slice(nl + 1).trim(), 10);
-  if (status < 200 || status >= 300) throw Object.assign(new Error(`HTTP ${status}`), { status });
-  return raw.slice(0, nl);
-}
 
 const FEAR_GREED_KEY = 'market:fear-greed:v1';
 const FEAR_GREED_TTL = 64800; // 18h = 3x 6h interval
@@ -33,13 +17,7 @@ async function fetchYahooSymbol(symbol) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1y`;
   const headers = { 'User-Agent': CHROME_UA, Accept: 'application/json' };
   try {
-    // Use curl+proxy when available — Railway container IPs are periodically blocked by Yahoo.
-    const text = _proxyAuth
-      ? curlFetch(url, headers)
-      : await fetch(url, { headers, signal: AbortSignal.timeout(10_000) }).then(r => {
-          if (!r.ok) throw Object.assign(new Error(`HTTP ${r.status}`), { status: r.status });
-          return r.text();
-        });
+    const text = await fetchTextWithProxyFallback(url, _proxyAuth, headers, 10_000);
     const data = JSON.parse(text);
     const result = data?.chart?.result?.[0];
     if (!result) return null;

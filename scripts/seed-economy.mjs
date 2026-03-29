@@ -1,15 +1,6 @@
 #!/usr/bin/env node
 
-import {
-  loadEnvFile,
-  CHROME_UA,
-  runSeed,
-  writeExtraKeyWithMeta,
-  sleep,
-  resolveProxy,
-  fredFetchJson,
-  fetchJsonWithCurlFallback,
-} from './_seed-utils.mjs';
+import { loadEnvFile, CHROME_UA, runSeed, writeExtraKeyWithMeta, sleep, resolveProxy, fredFetchJson, fetchTextWithProxyFallback } from './_seed-utils.mjs';
 
 loadEnvFile(import.meta.url);
 
@@ -58,18 +49,12 @@ async function fetchEnergyPrices() {
       'sort[0][direction]': 'desc',
       length: '2',
     });
-    let data;
-    try {
-      data = await fetchJsonWithCurlFallback(`https://api.eia.gov${c.apiPath}?${params}`, {
-        Accept: 'application/json',
-        'User-Agent': CHROME_UA,
-      });
-    } catch (err) {
-      const status = err?.status || err?.message?.match(/^HTTP (\d+)/)?.[1];
-      if (status) console.warn(`  EIA ${c.commodity}: HTTP ${status}`);
-      else console.warn(`  EIA ${c.commodity}: ${err.message || err}`);
-      continue;
-    }
+    const resp = await fetch(`https://api.eia.gov${c.apiPath}?${params}`, {
+      headers: { Accept: 'application/json', 'User-Agent': CHROME_UA },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!resp.ok) { console.warn(`  EIA ${c.commodity}: HTTP ${resp.status}`); continue; }
+    const data = await resp.json();
     const rows = data.response?.data;
     if (!rows || rows.length === 0) continue;
     const current = rows[0];
@@ -108,16 +93,12 @@ async function fetchCapacityForSource(sourceCode, apiKey, startYear) {
     length: '5000',
     start: String(startYear),
   });
-  let data;
-  try {
-    data = await fetchJsonWithCurlFallback(
-      `https://api.eia.gov/v2/electricity/state-electricity-profiles/capability/data/?${params}`,
-      { Accept: 'application/json', 'User-Agent': CHROME_UA },
-      15_000,
-    );
-  } catch {
-    return new Map();
-  }
+  const resp = await fetch(
+    `https://api.eia.gov/v2/electricity/state-electricity-profiles/capability/data/?${params}`,
+    { headers: { Accept: 'application/json', 'User-Agent': CHROME_UA }, signal: AbortSignal.timeout(15_000) },
+  );
+  if (!resp.ok) return new Map();
+  const data = await resp.json();
   const rows = data.response?.data || [];
   const yearTotals = new Map();
   for (const row of rows) {
@@ -189,7 +170,7 @@ async function fetchFredSeries() {
       ]);
 
       if (obsResp.status === 'rejected') {
-        console.warn(`  FRED ${seriesId}: fetch failed`);
+        console.warn(`  FRED ${seriesId}: fetch failed — ${obsResp.reason?.message || obsResp.reason}`);
         continue;
       }
 
@@ -211,19 +192,17 @@ async function fetchFredSeries() {
       console.warn(`  FRED ${seriesId}: ${e.message}`);
     }
   }
-  console.log(`  FRED series: ${Object.keys(results).length}/${FRED_SERIES.length}`);
+  const fredCount = Object.keys(results).length;
+  console.log(`  FRED series: ${fredCount}/${FRED_SERIES.length}`);
+  if (fredCount === 0) console.warn('  [WARN] FRED series: 0 fetched — all series failed. Check FRED_API_KEY and PROXY_URL. FRED-dependent panels will go stale.');
   return results;
 }
 
 // ─── Macro Signals (Yahoo, Alternative.me, Mempool) ───
 
-async function fetchJsonSafe(url, timeout = 8000) {
-  const resp = await fetch(url, {
-    headers: { 'User-Agent': CHROME_UA },
-    signal: AbortSignal.timeout(timeout),
-  });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.json();
+async function fetchJsonSafe(url, timeout = 8000, proxyAuth = null) {
+  const text = await fetchTextWithProxyFallback(url, proxyAuth, { 'User-Agent': CHROME_UA }, timeout);
+  return JSON.parse(text);
 }
 
 function extractClosePrices(chart) {
@@ -281,17 +260,17 @@ async function fetchFredJpyFallback() {
   } catch { return []; }
 }
 
-async function fetchMacroSignals() {
+async function fetchMacroSignals(proxyAuth = null) {
   const yahooBase = 'https://query1.finance.yahoo.com/v8/finance/chart';
 
-  // Sequential Yahoo calls (150ms gaps like yahooGate)
-  const jpyChart = await fetchJsonSafe(`${yahooBase}/JPY=X?range=1y&interval=1d`).catch(() => null);
+  // Sequential Yahoo calls (150ms gaps like yahooGate); route through proxy to bypass Railway IP blocks
+  const jpyChart = await fetchJsonSafe(`${yahooBase}/JPY=X?range=1y&interval=1d`, 8000, proxyAuth).catch(() => null);
   await sleep(150);
-  const btcChart = await fetchJsonSafe(`${yahooBase}/BTC-USD?range=1y&interval=1d`).catch(() => null);
+  const btcChart = await fetchJsonSafe(`${yahooBase}/BTC-USD?range=1y&interval=1d`, 8000, proxyAuth).catch(() => null);
   await sleep(150);
-  const qqqChart = await fetchJsonSafe(`${yahooBase}/QQQ?range=1y&interval=1d`).catch(() => null);
+  const qqqChart = await fetchJsonSafe(`${yahooBase}/QQQ?range=1y&interval=1d`, 8000, proxyAuth).catch(() => null);
   await sleep(150);
-  const xlpChart = await fetchJsonSafe(`${yahooBase}/XLP?range=1y&interval=1d`).catch(() => null);
+  const xlpChart = await fetchJsonSafe(`${yahooBase}/XLP?range=1y&interval=1d`, 8000, proxyAuth).catch(() => null);
 
   const [fearGreed, mempoolHash] = await Promise.allSettled([
     fetchJsonSafe('https://api.alternative.me/fng/?limit=30&format=json'),
@@ -439,10 +418,12 @@ async function fetchCrudeInventories() {
     'sort[0][direction]': 'desc',
     length: '9', // fetch 9 so the oldest of 8 has a prior week for weeklyChangeMb
   });
-  const data = await fetchJsonWithCurlFallback(`https://api.eia.gov/v2/petroleum/stoc/wstk/data/?${params}`, {
-    Accept: 'application/json',
-    'User-Agent': CHROME_UA,
+  const resp = await fetch(`https://api.eia.gov/v2/petroleum/stoc/wstk/data/?${params}`, {
+    headers: { Accept: 'application/json', 'User-Agent': CHROME_UA },
+    signal: AbortSignal.timeout(10_000),
   });
+  if (!resp.ok) throw new Error(`EIA WCRSTUS1: HTTP ${resp.status}`);
+  const data = await resp.json();
   const rows = data.response?.data;
   if (!rows || rows.length === 0) throw new Error('EIA WCRSTUS1: no data rows');
 
@@ -491,10 +472,12 @@ async function fetchNatGasStorage() {
     'sort[0][direction]': 'desc',
     length: '9', // fetch 9 so the oldest of 8 has a prior week for weeklyChangeBcf
   });
-  const data = await fetchJsonWithCurlFallback(`https://api.eia.gov/v2/natural-gas/stor/wkly/data/?${params}`, {
-    Accept: 'application/json',
-    'User-Agent': CHROME_UA,
+  const resp = await fetch(`https://api.eia.gov/v2/natural-gas/stor/wkly/data/?${params}`, {
+    headers: { Accept: 'application/json', 'User-Agent': CHROME_UA },
+    signal: AbortSignal.timeout(10_000),
   });
+  if (!resp.ok) throw new Error(`EIA NW2_EPG0_SWO_R48_BCF: HTTP ${resp.status}`);
+  const data = await resp.json();
   const rows = data.response?.data;
   if (!rows || rows.length === 0) throw new Error('EIA NW2_EPG0_SWO_R48_BCF: no data rows');
 
@@ -537,7 +520,7 @@ async function fetchAll() {
     fetchEnergyPrices(),
     fetchEnergyCapacity(),
     fetchFredSeries(),
-    fetchMacroSignals(),
+    fetchMacroSignals(_proxyAuth),
     fetchCrudeInventories(),
     fetchNatGasStorage(),
   ]);
@@ -556,12 +539,13 @@ async function fetchAll() {
   if (crudeInventories.status === 'rejected') console.warn(`  CrudeInventories failed: ${crudeInventories.reason?.message || crudeInventories.reason}`);
   if (natGasStorage.status === 'rejected') console.warn(`  NatGasStorage failed: ${natGasStorage.reason?.message || natGasStorage.reason}`);
 
-  if (!ep && !fr && !ms) throw new Error('All economic fetches failed');
+  const frHasData = fr && Object.keys(fr).length > 0;
+  if (!ep && !frHasData && !ms) throw new Error('All economic fetches failed');
 
   // Write secondary keys BEFORE returning (runSeed calls process.exit after primary write)
   if (ec?.series?.length > 0) await writeExtraKeyWithMeta(KEYS.energyCapacity, ec, CAPACITY_TTL, ec.series.length);
 
-  if (fr) {
+  if (frHasData) {
     for (const [seriesId, series] of Object.entries(fr)) {
       await writeExtraKeyWithMeta(`${FRED_KEY_PREFIX}:${seriesId}:0`, { series }, FRED_TTL, series.observations?.length ?? 0);
     }
